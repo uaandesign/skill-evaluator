@@ -15,10 +15,10 @@ const App = () => {
   const [collapsed, setCollapsed] = useState(false);
 
   const menuItems = [
-    { key: 'config-center', label: '配置中心' },
-    { key: 'skill-library', label: '技能库' },
-    { key: 'skill-editor', label: '技能编辑' },
     { key: 'skill-evaluator', label: '技能评估' },
+    { key: 'skill-editor', label: '技能编辑' },
+    { key: 'skill-library', label: '技能库' },
+    { key: 'config-center', label: '配置中心' },
   ];
 
   const renderContent = () => {
@@ -38,7 +38,7 @@ const App = () => {
     return item ? item.label : '';
   };
 
-  const isFullWidth = activeTab === 'compare-test' || activeTab === 'skill-evaluator';
+  const isFullWidth = activeTab === 'compare-test' || activeTab === 'skill-evaluator' || activeTab === 'skill-editor';
 
   return (
     <ConfigProvider

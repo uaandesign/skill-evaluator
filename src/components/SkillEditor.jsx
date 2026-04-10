@@ -1,498 +1,720 @@
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Card,
-  Upload,
-  Segmented,
   Button,
-  Alert,
-  Tag,
-  Collapse,
-  Typography,
-  Space,
-  Tabs,
-  message,
-  Tooltip,
-  Tree,
+  Select,
   Input,
+  Typography,
+  Tag,
+  Space,
+  Empty,
+  message,
+  Tabs,
+  Tooltip,
+  Spin,
+  Alert,
+  Segmented,
+  List,
 } from 'antd';
 import { useStore } from '../store';
-import {
-  parseSkill,
-  detectFormat,
-  validateSkillMd,
-  validateFunctionCall,
-  validatePromptTemplate,
-} from '../utils/skillParser';
+import { detectFormat, validateSkillMd, validateFunctionCall, validatePromptTemplate } from '../utils/skillParser';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text, Title, Paragraph } = Typography;
+const { Option } = Select;
 
-const SKILL_MD_TEMPLATE = `---
-name: 我的技能
-version: 1.0.0
-description: 技能的简单描述
-author: 作者名称
-tags:
-  - 标签1
-  - 标签2
-parameters:
-  - name: input
-    type: string
-    description: 输入参数
-  - name: options
-    type: object
-    description: 可选配置
-returns:
-  type: object
-  description: 返回值
----
-
-# 概述
-
-在这里详细描述你的技能。
-
-## 用法
-
-解释如何使用此技能。
-
-## 示例
-
-\`\`\`
-代码示例或使用示例
-\`\`\`
-`;
-
-const FUNCTION_CALL_TEMPLATE = `{
-  "name": "my_skill",
-  "description": "技能的简单描述",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "input": {
-        "type": "string",
-        "description": "输入参数"
-      },
-      "options": {
-        "type": "object",
-        "description": "可选配置",
-        "properties": {}
-      }
-    },
-    "required": ["input"]
-  }
-}`;
-
-const PROMPT_TEMPLATE_TEMPLATE = `# {{skillName}}
-
-## 描述
-{{description}}
-
-## 指令
-1. {{instruction1}}
-2. {{instruction2}}
-3. {{instruction3}}
-
-## 输入格式
-- {{inputParam1}}: {{description1}}
-- {{inputParam2}}: {{description2}}
-
-## 输出格式
-预期的输出格式和结构。
-
-## 示例
-输入: {{exampleInput}}
-输出: {{exampleOutput}}
-`;
-
+/**
+ * SkillEditor — Dual-panel layout
+ * ─────────────────────────────────────────────
+ * LEFT  : Skill picker from library + editor (SKILL.md / function schema view)
+ * RIGHT : Model picker + user input + run skill + output viewer
+ * ─────────────────────────────────────────────
+ */
 const SkillEditor = () => {
-  const [format, setFormat] = useState('skillmd');
-  const [content, setContent] = useState(SKILL_MD_TEMPLATE);
-  const [validationResults, setValidationResults] = useState(null);
-  const [skillData, setSkillData] = useState(null);
-  const [showValidation, setShowValidation] = useState(true);
-  const editorRef = useRef(null);
+  const {
+    skills,
+    updateSkill,
+    saveSkillVersion,
+    modelConfigs,
+    activeSkillId,
+    setActiveSkill,
+  } = useStore();
 
-  const { addSkill } = useStore();
+  // ── Left panel state ──────────────────────────────────────────
+  const [selectedSkillId, setSelectedSkillId] = useState(activeSkillId || null);
+  const [editorContent, setEditorContent] = useState('');
+  const [editorFormat, setEditorFormat] = useState('skillmd');
+  const [dirty, setDirty] = useState(false);
+  const [leftTab, setLeftTab] = useState('editor'); // 'editor' | 'function' | 'info'
+  const [skillSearchText, setSkillSearchText] = useState('');
 
-  const validate = useCallback((text, fmt) => {
-    let results;
-    switch (fmt) {
+  // ── Right panel state ─────────────────────────────────────────
+  const [selectedModelId, setSelectedModelId] = useState(null);
+  const [userInput, setUserInput] = useState('');
+  const [runLoading, setRunLoading] = useState(false);
+  const [runOutput, setRunOutput] = useState('');
+  const [runError, setRunError] = useState('');
+  const [runDuration, setRunDuration] = useState(null);
+  const [runModelLabel, setRunModelLabel] = useState('');
+
+  // ── Derived ───────────────────────────────────────────────────
+  const selectedSkill = useMemo(
+    () => skills.find((s) => s.id === selectedSkillId) || null,
+    [skills, selectedSkillId]
+  );
+
+  const selectedModel = useMemo(
+    () => modelConfigs.find((m) => m.id === selectedModelId) || null,
+    [modelConfigs, selectedModelId]
+  );
+
+  const filteredSkills = useMemo(() => {
+    if (!skillSearchText) return skills;
+    const q = skillSearchText.toLowerCase();
+    return skills.filter(
+      (s) =>
+        (s.name || '').toLowerCase().includes(q) ||
+        (s.description || '').toLowerCase().includes(q)
+    );
+  }, [skills, skillSearchText]);
+
+  // Load selected skill into editor
+  useEffect(() => {
+    if (selectedSkill) {
+      setEditorContent(selectedSkill.content || '');
+      const fmt = selectedSkill.format || detectFormat(selectedSkill.content || '');
+      setEditorFormat(fmt);
+      setDirty(false);
+    } else {
+      setEditorContent('');
+      setEditorFormat('skillmd');
+      setDirty(false);
+    }
+  }, [selectedSkill]);
+
+  // Validate current content
+  const validation = useMemo(() => {
+    if (!editorContent) return null;
+    switch (editorFormat) {
       case 'skillmd':
-        results = validateSkillMd(text);
-        break;
+      case 'skill_md':
+        return validateSkillMd(editorContent);
       case 'function':
-        results = validateFunctionCall(text);
-        break;
+      case 'function_call':
+        return validateFunctionCall(editorContent);
       case 'prompt':
-        results = validatePromptTemplate(text);
-        break;
+      case 'prompt_template':
+        return validatePromptTemplate(editorContent);
       default:
-        results = { valid: false, errors: [], warnings: [] };
+        return null;
     }
-    setValidationResults(results);
-    if (results.valid && results.parsed) {
-      setSkillData(results.parsed);
-    }
-  }, []);
+  }, [editorContent, editorFormat]);
 
-  const handleContentChange = (value) => {
-    setContent(value);
-    validate(value, format);
+  // Function schema parsed from content
+  const functionSchema = useMemo(() => {
+    if (!selectedSkill || !editorContent) return null;
+
+    // Case 1: skill itself is a function_call JSON
+    if (editorFormat === 'function' || editorFormat === 'function_call') {
+      try {
+        return JSON.parse(editorContent);
+      } catch {
+        return null;
+      }
+    }
+
+    // Case 2: skill is SKILL.md — try to extract parameters/returns from frontmatter via validator
+    if (validation?.parsed) {
+      const parsed = validation.parsed;
+      if (parsed.name || parsed.parameters || parsed.returns) {
+        return {
+          name: parsed.name || selectedSkill.name || 'skill',
+          description: parsed.description || selectedSkill.description || '',
+          parameters: parsed.parameters || [],
+          returns: parsed.returns || null,
+        };
+      }
+    }
+
+    return null;
+  }, [selectedSkill, editorContent, editorFormat, validation]);
+
+  // ── Handlers ──────────────────────────────────────────────────
+  const handleContentChange = (e) => {
+    setEditorContent(e.target.value);
+    setDirty(true);
   };
 
-  const handleFormatChange = (newFormat) => {
-    setFormat(newFormat);
-    let newContent;
-    switch (newFormat) {
-      case 'skillmd':
-        newContent = SKILL_MD_TEMPLATE;
-        break;
-      case 'function':
-        newContent = FUNCTION_CALL_TEMPLATE;
-        break;
-      case 'prompt':
-        newContent = PROMPT_TEMPLATE_TEMPLATE;
-        break;
-      default:
-        newContent = '';
-    }
-    setContent(newContent);
-    validate(newContent, newFormat);
-  };
-
-  const handleFileUpload = (file) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target.result;
-      const detectedFormat = detectFormat(text);
-      setFormat(detectedFormat);
-      setContent(text);
-      validate(text, detectedFormat);
-    };
-    reader.readAsText(file);
-    return false;
-  };
-
-  const handleSave = () => {
-    if (!validationResults?.valid) {
-      message.error('无法保存: 请先修复验证错误');
+  const handleSaveVersion = () => {
+    if (!selectedSkill) {
+      message.warning('请先选择一个技能');
       return;
     }
-    const skillId = `skill_${Date.now()}`;
-    const skillPayload = {
-      id: skillId,
-      format,
-      content,
-      parsedData: skillData,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+    if (!editorContent.trim()) {
+      message.warning('内容不能为空');
+      return;
+    }
+    saveSkillVersion(
+      selectedSkill.id,
+      editorContent,
+      `编辑器修改 @ ${new Date().toLocaleString('zh-CN')}`
+    );
+    // Also update the "current content" on the skill so library shows latest
+    updateSkill(selectedSkill.id, { content: editorContent, updatedAt: new Date().toISOString() });
+    setDirty(false);
+    message.success('已保存为新版本');
+  };
+
+  const handleRevert = () => {
+    if (!selectedSkill) return;
+    setEditorContent(selectedSkill.content || '');
+    setDirty(false);
+    message.info('已还原到当前版本');
+  };
+
+  const handleUseSkill = (skill) => {
+    setSelectedSkillId(skill.id);
+    setActiveSkill(skill.id);
+    message.success(`已切换到技能：${skill.name || '未命名'}`);
+  };
+
+  const handleRunSkill = async () => {
+    if (!selectedSkill || !editorContent) {
+      message.warning('请先选择或编辑一个技能');
+      return;
+    }
+    if (!selectedModel) {
+      message.warning('请先选择一个大模型');
+      return;
+    }
+    if (!userInput.trim()) {
+      message.warning('请输入要发送给技能的内容');
+      return;
+    }
+
+    setRunLoading(true);
+    setRunOutput('');
+    setRunError('');
+    setRunDuration(null);
+
+    try {
+      const resp = await fetch('/api/run-skill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skill_content: editorContent,
+          user_input: userInput,
+          model_config: selectedModel,
+        }),
+      });
+      const data = await resp.json();
+      if (data.error) {
+        setRunError(data.error);
+        message.error(data.error);
+      } else {
+        setRunOutput(data.output || '');
+        setRunDuration(data.duration_ms || null);
+        setRunModelLabel(data.model || '');
+        message.success('技能运行成功');
+      }
+    } catch (err) {
+      setRunError(err.message || '请求失败');
+      message.error('请求失败: ' + err.message);
+    } finally {
+      setRunLoading(false);
+    }
+  };
+
+  const getFormatLabel = (f) => {
+    const labels = {
+      skillmd: 'SKILL.md',
+      skill_md: 'SKILL.md',
+      function: 'Function Call',
+      function_call: 'Function Call',
+      prompt: 'Prompt Template',
+      prompt_template: 'Prompt Template',
     };
-    addSkill(skillPayload);
-    message.success(`技能已保存，ID: ${skillId}`);
+    return labels[f] || f || 'Unknown';
   };
 
-  const handleCopyContent = () => {
-    navigator.clipboard.writeText(content);
-    message.success('内容已复制到剪贴板');
-  };
-
-  const handleClearEditor = () => {
-    setContent('');
-    setValidationResults(null);
-    setSkillData(null);
-    message.info('编辑器已清空');
-  };
-
-  const handleInsertTemplate = (template) => {
-    setContent(template);
-    validate(template, format);
-    message.success('模板已插入');
-  };
-
-  const validationTreeData = useMemo(() => {
-    if (!validationResults || !validationResults.parsed) return [];
-
-    const buildTreeNode = (obj, key = 'root') => {
-      if (obj === null || obj === undefined) {
-        return {
-          title: `${key}: null`,
-          key: `${key}_null`,
-        };
-      }
-
-      if (typeof obj !== 'object') {
-        return {
-          title: `${key}: ${String(obj)}`,
-          key: `${key}_${String(obj)}`,
-        };
-      }
-
-      if (Array.isArray(obj)) {
-        return {
-          title: `${key} (数组, ${obj.length} 项)`,
-          key: `${key}_array`,
-          children: obj.map((item, idx) => buildTreeNode(item, `[${idx}]`)),
-        };
-      }
-
-      return {
-        title: key,
-        key,
-        children: Object.entries(obj).map(([k, v]) => buildTreeNode(v, k)),
-      };
-    };
-
-    return [buildTreeNode(validationResults.parsed)];
-  }, [validationResults]);
-
-  const renderValidationPanel = () => {
-    if (!validationResults) return null;
-
-    return (
-      <div style={{ marginTop: '20px' }}>
-        <div style={{ marginBottom: '16px' }}>
-          {validationResults.valid ? (
-            <Alert
-              message="验证通过"
-              description="此技能有效，可以保存。"
-              type="success"
-              icon={null}
-              showIcon
-            />
-          ) : (
-            <Alert
-              message="验证失败"
-              description="请在保存前修复下面的错误。"
-              type="error"
-              icon={null}
-              showIcon
-            />
+  // ── Render: Left Panel ────────────────────────────────────────
+  const leftPanel = (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        background: '#fff',
+        borderRight: '1px solid #e5e7eb',
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          padding: '16px 20px',
+          borderBottom: '1px solid #e5e7eb',
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <Text strong style={{ fontSize: 14, color: '#111827' }}>技能编辑</Text>
+          {selectedSkill && (
+            <Space size={6}>
+              <Tag style={{ fontSize: 11, margin: 0 }}>{getFormatLabel(editorFormat)}</Tag>
+              {dirty && <Tag color="orange" style={{ fontSize: 11, margin: 0 }}>未保存</Tag>}
+            </Space>
           )}
         </div>
 
-        {(validationResults.errors.length > 0 || validationResults.warnings.length > 0) && (
-          <div style={{ marginBottom: '16px' }}>
-            {validationResults.errors.length > 0 && (
-              <div style={{ marginBottom: '16px' }}>
-                <Title level={5}>错误 ({validationResults.errors.length})</Title>
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  {validationResults.errors.map((err, idx) => (
-                    <div key={idx} style={{ padding: '8px', backgroundColor: '#fff2f0', borderRadius: '4px' }}>
-                      <Tag color="red">第 {err.line || 'N/A'} 行</Tag>
-                      <Text>{err.message}</Text>
-                    </div>
-                  ))}
-                </Space>
-              </div>
-            )}
+        {/* Skill picker */}
+        <Select
+          showSearch
+          allowClear
+          placeholder="从技能库选择一个技能..."
+          value={selectedSkillId}
+          onChange={(v) => setSelectedSkillId(v)}
+          style={{ width: '100%' }}
+          filterOption={(input, option) =>
+            (option?.label || '').toLowerCase().includes(input.toLowerCase())
+          }
+          options={skills.map((s) => ({
+            value: s.id,
+            label: s.name || '未命名技能',
+          }))}
+        />
+      </div>
 
-            {validationResults.warnings.length > 0 && (
-              <div>
-                <Title level={5}>警告 ({validationResults.warnings.length})</Title>
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  {validationResults.warnings.map((warn, idx) => (
-                    <div key={idx} style={{ padding: '8px', backgroundColor: '#fffbe6', borderRadius: '4px' }}>
-                      <Tag color="orange">第 {warn.line || 'N/A'} 行</Tag>
-                      <Text>{warn.message}</Text>
+      {/* Skill quick list */}
+      {!selectedSkillId && skills.length > 0 && (
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f3f4f6' }}>
+          <Text style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 8 }}>
+            或快速选择技能库中的技能：
+          </Text>
+          <Input
+            placeholder="搜索技能..."
+            value={skillSearchText}
+            onChange={(e) => setSkillSearchText(e.target.value)}
+            size="small"
+            allowClear
+            style={{ marginBottom: 8 }}
+          />
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            <List
+              size="small"
+              dataSource={filteredSkills.slice(0, 20)}
+              locale={{ emptyText: '没有匹配的技能' }}
+              renderItem={(skill) => (
+                <List.Item
+                  style={{ padding: '6px 0', cursor: 'pointer' }}
+                  onClick={() => handleUseSkill(skill)}
+                >
+                  <div style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <Text strong style={{ fontSize: 12 }} ellipsis>
+                        {skill.name || '未命名'}
+                      </Text>
+                      <Tag style={{ fontSize: 10, margin: 0, flexShrink: 0 }}>
+                        {getFormatLabel(skill.format)}
+                      </Tag>
                     </div>
-                  ))}
-                </Space>
-              </div>
-            )}
+                    {skill.description && (
+                      <Text style={{ fontSize: 11, color: '#9ca3af' }} ellipsis>
+                        {skill.description}
+                      </Text>
+                    )}
+                  </div>
+                </List.Item>
+              )}
+            />
           </div>
-        )}
+        </div>
+      )}
 
-        {validationResults.parsed && (
-          <div style={{ marginTop: '16px' }}>
-            <Collapse
+      {!selectedSkillId && skills.length === 0 && (
+        <div style={{ padding: 20, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Empty description="技能库为空，请前往「技能库」上传技能" imageStyle={{ height: 60 }} />
+        </div>
+      )}
+
+      {/* Editor area */}
+      {selectedSkillId && (
+        <>
+          <div style={{ padding: '12px 20px 0 20px', flexShrink: 0 }}>
+            <Tabs
+              activeKey={leftTab}
+              onChange={setLeftTab}
+              size="small"
               items={[
-                {
-                  key: 'parsed',
-                  label: '解析结构',
-                  children: (
-                    <Tree
-                      treeData={validationTreeData}
-                      defaultExpandAll={false}
-                      showIcon={false}
-                    />
-                  ),
-                },
+                { key: 'editor', label: '编辑 SKILL.md' },
+                { key: 'function', label: '函数调用' },
+                { key: 'info', label: '基本信息' },
               ]}
             />
           </div>
-        )}
-      </div>
-    );
-  };
 
-  const templateItems = [
-    {
-      key: 'skillmd',
-      label: 'SKILL.md',
-      children: (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Paragraph>
-            <Text code>SKILL.md</Text> 格式，带 YAML 前置数据用于全面的技能定义。
-          </Paragraph>
-          <Button
-            type="primary"
-            onClick={() => handleInsertTemplate(SKILL_MD_TEMPLATE)}
-          >
-            插入 SKILL.md 模板
-          </Button>
-          <Alert
-            message="格式: YAML 前置数据后接 Markdown 内容"
-            type="info"
-          />
-        </Space>
-      ),
-    },
-    {
-      key: 'function',
-      label: '函数调用',
-      children: (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Paragraph>
-            OpenAI 兼容的 JSON 模式，用于函数调用集成。
-          </Paragraph>
-          <Button
-            type="primary"
-            onClick={() => handleInsertTemplate(FUNCTION_CALL_TEMPLATE)}
-          >
-            插入函数调用模板
-          </Button>
-          <Alert
-            message="格式: 遵循 OpenAI 函数模式规范的 JSON"
-            type="info"
-          />
-        </Space>
-      ),
-    },
-    {
-      key: 'prompt',
-      label: '提示词模板',
-      children: (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Paragraph>
-            自定义模板格式，带有用于动态内容的变量占位符。
-          </Paragraph>
-          <Button
-            type="primary"
-            onClick={() => handleInsertTemplate(PROMPT_TEMPLATE_TEMPLATE)}
-          >
-            插入提示词模板
-          </Button>
-          <Alert
-            message="格式: 带 {{variable}} 占位符的自定义 Markdown"
-            type="info"
-          />
-        </Space>
-      ),
-    },
-  ];
+          <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 16px 20px' }}>
+            {leftTab === 'editor' && (
+              <>
+                <Input.TextArea
+                  value={editorContent}
+                  onChange={handleContentChange}
+                  placeholder="技能内容 (SKILL.md 格式)..."
+                  style={{
+                    fontFamily: "'Fira Code', 'Courier New', monospace",
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                    minHeight: 380,
+                    background: '#fafafa',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 6,
+                  }}
+                  autoSize={{ minRows: 18, maxRows: 30 }}
+                />
 
-  return (
-    <div style={{ padding: '24px' }}>
-      <Card
-        title={<Title level={3} style={{ marginTop: 0 }}>技能编辑器</Title>}
-        extra={
-          <Space>
-            <Tooltip title="复制编辑器内容">
-              <Button
-                onClick={handleCopyContent}
-              >
-                复制内容
-              </Button>
-            </Tooltip>
-            <Tooltip title="清空编辑器">
-              <Button
-                onClick={handleClearEditor}
-                danger
-              >
-                清空编辑器
-              </Button>
-            </Tooltip>
-            <Button
-              type="primary"
-              onClick={handleSave}
-              disabled={!validationResults?.valid}
-            >
-              保存技能
-            </Button>
-          </Space>
-        }
-        style={{ marginBottom: '24px' }}
-      >
-        {/* 文件上传区 */}
-        <div style={{ marginBottom: '20px' }}>
-          <Upload.Dragger
-            accept=".md,.json,.txt,.yaml,.yml"
-            beforeUpload={handleFileUpload}
-            maxCount={1}
-          >
-            <p style={{ fontSize: '48px', margin: '16px 0 8px 0' }}>
-              +
-            </p>
-            <p style={{ margin: '8px 0' }}>拖拽技能文件到此处</p>
-            <p style={{ color: '#999', margin: '0' }}>
-              或点击选择文件 (.md, .json, .txt, .yaml)
-            </p>
-          </Upload.Dragger>
-        </div>
+                {validation && (
+                  <div style={{ marginTop: 10 }}>
+                    {validation.valid ? (
+                      <Alert
+                        type="success"
+                        message={`校验通过${validation.warnings?.length ? ` · ${validation.warnings.length} 个警告` : ''}`}
+                        showIcon={false}
+                        style={{ padding: '6px 12px', fontSize: 12 }}
+                      />
+                    ) : (
+                      <Alert
+                        type="error"
+                        message={`校验失败 · ${validation.errors?.length || 0} 个错误`}
+                        description={
+                          validation.errors?.length ? (
+                            <div style={{ fontSize: 11 }}>
+                              {validation.errors.slice(0, 3).map((err, i) => (
+                                <div key={i}>· {err.message}</div>
+                              ))}
+                            </div>
+                          ) : null
+                        }
+                        showIcon={false}
+                        style={{ padding: '6px 12px', fontSize: 12 }}
+                      />
+                    )}
+                  </div>
+                )}
+              </>
+            )}
 
-        {/* 格式选择器 */}
-        <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#f5f5f5', borderRadius: '6px' }}>
-          <Text strong>格式选择:</Text>
-          <Segmented
-            value={format}
-            onChange={handleFormatChange}
-            options={[
-              { label: 'SKILL.md', value: 'skillmd' },
-              { label: '函数调用', value: 'function' },
-              { label: '提示词模板', value: 'prompt' },
-            ]}
-            style={{ marginLeft: '16px' }}
-          />
-        </div>
+            {leftTab === 'function' && (
+              <div>
+                {functionSchema ? (
+                  <div>
+                    <Text style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 8 }}>
+                      从技能中提取的函数调用结构：
+                    </Text>
+                    <pre
+                      style={{
+                        background: '#0f172a',
+                        color: '#e2e8f0',
+                        padding: 14,
+                        borderRadius: 8,
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                        overflow: 'auto',
+                        maxHeight: 420,
+                        margin: 0,
+                        fontFamily: "'Fira Code', 'Courier New', monospace",
+                      }}
+                    >
+                      {JSON.stringify(functionSchema, null, 2)}
+                    </pre>
+                    <Button
+                      size="small"
+                      style={{ marginTop: 10 }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(functionSchema, null, 2));
+                        message.success('已复制到剪贴板');
+                      }}
+                    >
+                      复制 JSON
+                    </Button>
+                  </div>
+                ) : (
+                  <Empty
+                    description={
+                      <Text style={{ fontSize: 12, color: '#9ca3af' }}>
+                        当前技能没有可识别的函数调用结构
+                        <br />
+                        （需要 SKILL.md 含 parameters 字段 或 JSON 函数格式）
+                      </Text>
+                    }
+                    imageStyle={{ height: 60 }}
+                    style={{ padding: '30px 0' }}
+                  />
+                )}
+              </div>
+            )}
 
-        {/* 文本编辑器 */}
-        <div style={{ marginBottom: '20px', border: '1px solid #d9d9d9', borderRadius: '6px', overflow: 'hidden' }}>
-          <Input.TextArea
-            ref={editorRef}
-            value={content}
-            onChange={(e) => handleContentChange(e.target.value)}
+            {leftTab === 'info' && selectedSkill && (
+              <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                <div style={{ marginBottom: 8 }}>
+                  <Text strong>名称：</Text>
+                  <Text>{selectedSkill.name || '-'}</Text>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <Text strong>唯一名：</Text>
+                  <Text code style={{ fontSize: 11 }}>{selectedSkill.uniqueName || '-'}</Text>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <Text strong>描述：</Text>
+                  <Text>{selectedSkill.description || '-'}</Text>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <Text strong>格式：</Text>
+                  <Tag>{getFormatLabel(selectedSkill.format)}</Tag>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <Text strong>版本数：</Text>
+                  <Text>{selectedSkill.versions?.length || 1}</Text>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <Text strong>内容长度：</Text>
+                  <Text>{(selectedSkill.content || '').length} 字符</Text>
+                </div>
+                <div>
+                  <Text strong>更新时间：</Text>
+                  <Text>
+                    {selectedSkill.updatedAt
+                      ? new Date(selectedSkill.updatedAt).toLocaleString('zh-CN')
+                      : '-'}
+                  </Text>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Action bar */}
+          <div
             style={{
-              fontFamily: "'Fira Code', 'Courier New', monospace",
-              fontSize: '13px',
-              minHeight: '500px',
-              width: '100%',
-              border: 'none',
+              padding: '12px 20px',
+              borderTop: '1px solid #e5e7eb',
+              background: '#fafafa',
+              flexShrink: 0,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
             }}
-            placeholder="在此输入技能内容..."
-          />
+          >
+            <Text style={{ fontSize: 11, color: '#9ca3af' }}>
+              {editorContent.length.toLocaleString()} 字符
+            </Text>
+            <Space>
+              <Button size="small" onClick={handleRevert} disabled={!dirty}>
+                还原
+              </Button>
+              <Button size="small" type="primary" onClick={handleSaveVersion} disabled={!dirty}>
+                保存新版本
+              </Button>
+            </Space>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  // ── Render: Right Panel ───────────────────────────────────────
+  const rightPanel = (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        background: '#f9fafb',
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          padding: '16px 20px',
+          borderBottom: '1px solid #e5e7eb',
+          background: '#fff',
+          flexShrink: 0,
+        }}
+      >
+        <Text strong style={{ fontSize: 14, color: '#111827' }}>
+          运行测试
+        </Text>
+        <Text style={{ fontSize: 12, color: '#9ca3af', marginLeft: 8 }}>
+          使用大模型运行当前技能，实时查看效果
+        </Text>
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+        {/* Model picker */}
+        <div style={{ marginBottom: 16 }}>
+          <Text strong style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 6 }}>
+            1. 选择大模型
+          </Text>
+          {modelConfigs.length === 0 ? (
+            <Alert
+              type="warning"
+              message="暂无已配置模型"
+              description="请前往「配置中心」添加模型"
+              showIcon={false}
+              style={{ padding: '8px 12px', fontSize: 12 }}
+            />
+          ) : (
+            <Select
+              value={selectedModelId}
+              onChange={setSelectedModelId}
+              placeholder="选择已配置的模型"
+              style={{ width: '100%' }}
+            >
+              {modelConfigs.map((m) => (
+                <Option key={m.id} value={m.id}>
+                  {m.displayName || `${m.provider} / ${m.model}`}
+                </Option>
+              ))}
+            </Select>
+          )}
+          {selectedModel && (
+            <Text style={{ fontSize: 11, color: '#9ca3af', display: 'block', marginTop: 4 }}>
+              {selectedModel.provider} · {selectedModel.model}
+            </Text>
+          )}
         </div>
 
-        {/* 验证面板切换 */}
-        <div style={{ marginBottom: '12px' }}>
+        {/* User input */}
+        <div style={{ marginBottom: 16 }}>
+          <Text strong style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 6 }}>
+            2. 输入测试内容
+          </Text>
+          <Input.TextArea
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            placeholder="输入你想发送给技能的内容..."
+            rows={6}
+            style={{
+              fontSize: 13,
+              borderRadius: 6,
+            }}
+          />
+          <Text style={{ fontSize: 11, color: '#9ca3af', display: 'block', marginTop: 4 }}>
+            技能定义将作为 system prompt，此处内容作为 user prompt
+          </Text>
+        </div>
+
+        {/* Run button */}
+        <div style={{ marginBottom: 16 }}>
           <Button
-            type="text"
-            onClick={() => setShowValidation(!showValidation)}
+            type="primary"
+            block
+            loading={runLoading}
+            onClick={handleRunSkill}
+            disabled={!selectedSkill || !selectedModel || !userInput.trim()}
           >
-            {showValidation ? '隐藏' : '显示'} 验证面板
+            {runLoading ? '运行中...' : '运行技能'}
           </Button>
         </div>
 
-        {showValidation && renderValidationPanel()}
-      </Card>
+        {/* Output */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text strong style={{ fontSize: 12, color: '#374151' }}>
+              3. 运行结果
+            </Text>
+            {runDuration !== null && (
+              <Space size={8}>
+                {runModelLabel && (
+                  <Tag style={{ fontSize: 10, margin: 0 }}>{runModelLabel}</Tag>
+                )}
+                <Tag color="green" style={{ fontSize: 10, margin: 0 }}>
+                  {runDuration} ms
+                </Tag>
+              </Space>
+            )}
+          </div>
 
-      {/* 模板库 */}
-      <Card
-        title={<Title level={4} style={{ marginTop: 0 }}>模板库</Title>}
-      >
-        <Tabs
-          items={templateItems}
-          defaultActiveKey="skillmd"
-        />
-      </Card>
+          {runLoading ? (
+            <div
+              style={{
+                padding: 30,
+                textAlign: 'center',
+                background: '#fff',
+                border: '1px solid #e5e7eb',
+                borderRadius: 6,
+              }}
+            >
+              <Spin />
+              <Text style={{ fontSize: 12, color: '#6b7280', display: 'block', marginTop: 10 }}>
+                正在调用大模型，请稍候...
+              </Text>
+            </div>
+          ) : runError ? (
+            <Alert
+              type="error"
+              message="运行失败"
+              description={runError}
+              showIcon={false}
+              style={{ padding: '10px 14px', fontSize: 12 }}
+            />
+          ) : runOutput ? (
+            <div
+              style={{
+                background: '#fff',
+                border: '1px solid #e5e7eb',
+                borderRadius: 6,
+                padding: 14,
+                maxHeight: 460,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                fontSize: 13,
+                lineHeight: 1.7,
+                color: '#111827',
+              }}
+            >
+              {runOutput}
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    navigator.clipboard.writeText(runOutput);
+                    message.success('已复制输出');
+                  }}
+                >
+                  复制输出
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                background: '#fff',
+                border: '1px dashed #e5e7eb',
+                borderRadius: 6,
+                padding: 30,
+                textAlign: 'center',
+              }}
+            >
+              <Text style={{ fontSize: 12, color: '#9ca3af' }}>
+                运行技能后，输出将显示在此处
+              </Text>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Main render ───────────────────────────────────────────────
+  return (
+    <div
+      style={{
+        display: 'flex',
+        height: 'calc(100vh - 52px)',
+        width: '100%',
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{ width: '50%', minWidth: 400, height: '100%' }}>{leftPanel}</div>
+      <div style={{ width: '50%', minWidth: 400, height: '100%' }}>{rightPanel}</div>
     </div>
   );
 };

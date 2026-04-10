@@ -1079,6 +1079,53 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
 }
 
 /**
+ * POST /api/run-skill
+ * Lightweight skill execution endpoint — runs a skill with user input
+ * using the specified LLM model and returns the raw output.
+ * This is different from /api/evaluate-skill which runs full 3-phase evaluation.
+ *
+ * Input:  { skill_content, user_input, model_config }
+ * Output: { output, duration_ms, tokens_used?, error? }
+ */
+app.post('/api/run-skill', async (req, res) => {
+  const startTime = Date.now();
+  try {
+    const { skill_content, user_input, model_config } = req.body;
+
+    if (!skill_content) {
+      return res.status(400).json({ error: '缺少技能内容 (skill_content)' });
+    }
+    if (!user_input) {
+      return res.status(400).json({ error: '缺少用户输入 (user_input)' });
+    }
+    if (!model_config || !model_config.provider || !model_config.model) {
+      return res.status(400).json({ error: '缺少模型配置 (model_config)' });
+    }
+
+    // 使用 skill_content 作为 system prompt，user_input 作为 user prompt
+    const output = await callLLMForEval(
+      model_config,
+      user_input,
+      4000,
+      skill_content
+    );
+
+    const duration = Date.now() - startTime;
+    return res.json({
+      output: output || '',
+      duration_ms: duration,
+      model: `${model_config.provider}/${model_config.model}`,
+    });
+  } catch (err) {
+    console.error('[run-skill] Error:', err);
+    return res.status(500).json({
+      error: err.message || '运行失败',
+      duration_ms: Date.now() - startTime,
+    });
+  }
+});
+
+/**
  * POST /api/generate-test-cases
  * AI-powered test case generation based on skill definition
  * Input: SKILL.md content and skill name

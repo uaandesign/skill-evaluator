@@ -5,37 +5,6 @@
   "devCommand": "npm run dev",
   "framework": "vite",
   "installCommand": "npm ci",
-  "env": {
-    "DATABASE_URL": {
-      "description": "PostgreSQL connection string",
-      "required": false
-    },
-    "OPENAI_API_KEY": {
-      "description": "OpenAI API Key"
-    },
-    "ANTHROPIC_API_KEY": {
-      "description": "Anthropic Claude API Key"
-    },
-    "DEEPSEEK_API_KEY": {
-      "description": "DeepSeek API Key"
-    },
-    "DOUBAO_API_KEY": {
-      "description": "Doubao (ByteDance) API Key"
-    },
-    "QWEN_API_KEY": {
-      "description": "Qwen (Alibaba) API Key"
-    },
-    "GEMINI_API_KEY": {
-      "description": "Google Gemini API Key"
-    },
-    "ADMIN_TOKEN": {
-      "description": "Admin token for database initialization",
-      "required": true
-    },
-    "NODE_ENV": {
-      "default": "production"
-    }
-  },
   "functions": {
     "api/**/*.js": {
       "memory": 3008,

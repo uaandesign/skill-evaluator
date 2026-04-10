@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Skill Evaluator - AI Skill 质量评估工具</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Ctext x='16' y='22' text-anchor='middle' fill='white' font-size='18' font-weight='bold'%3ES%3C/text%3E%3C/svg%3E" />
+  <!-- React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Day.js (required by antd) -->
+  <script src="https://unpkg.com/dayjs@1/dayjs.min.js"></script>
+  <!-- Ant Design 5 UMD -->
+  <script src="https://unpkg.com/antd@5/dist/antd.min.js"></script>
+  <!-- Recharts -->
+  <script src="https://unpkg.com/recharts@2/umd/Recharts.min.js"></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+  <style>
+    :root{--c:#6366f1;--cl:#818cf8;--cb:#eef2ff;--bg:#f9fafb;--w:#fff;--b:#e5e7eb;--t:#111827;--ts:#6b7280;--tm:#9ca3af;--ok:#10b981;--warn:#f59e0b;--err:#ef4444;--r:12px;--s:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);--sm:0 4px 6px rgba(0,0,0,.05),0 2px 4px rgba(0,0,0,.03)}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:var(--bg);color:var(--t);overflow:hidden;height:100vh}
+    #root{height:100vh}
+    .al{display:flex;height:100vh}
+    .sb{width:220px;background:var(--w);border-right:1px solid var(--b);display:flex;flex-direction:column;flex-shrink:0}
+    .sb-logo{padding:20px 24px;border-bottom:1px solid var(--b);display:flex;align-items:center;gap:12px}
+    .sb-logo .ico{width:36px;height:36px;background:linear-gradient(135deg,var(--c),var(--cl));border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:16px}
+    .sb-logo .txt{font-size:17px;font-weight:600;color:var(--t)}
+    .sb-nav{padding:12px 8px;flex:1}
+    .ni{display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:8px;cursor:pointer;transition:all .15s;color:var(--ts);font-size:14px;margin-bottom:2px;border:none;background:none;width:100%;text-align:left}
+    .ni:hover{background:var(--cb);color:var(--c)}
+    .ni.ac{background:var(--cb);color:var(--c);font-weight:500}
+    .ni svg{width:18px;height:18px;flex-shrink:0}
+    .am{flex:1;display:flex;flex-direction:column;overflow:hidden}
+    .ah{height:56px;background:var(--w);border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;padding:0 28px;flex-shrink:0}
+    .ah h2{font-size:16px;font-weight:600}
+    .hs{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--tm)}
+    .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(16,185,129,.2)}
+    .ac-area{flex:1;overflow-y:auto;padding:24px 28px}
+    .ci{max-width:1400px;margin:0 auto}
+    .cd{background:var(--w);border-radius:var(--r);border:1px solid var(--b);box-shadow:var(--s);padding:20px;margin-bottom:16px;transition:box-shadow .2s}
+    .cd:hover{box-shadow:var(--sm)}
+    .ct{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+    .mg{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+    .fg{margin-bottom:14px}
+    .fl{display:block;font-size:13px;font-weight:500;color:var(--ts);margin-bottom:6px}
+    .cg{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .rp{background:var(--w);border-radius:var(--r);border:1px solid var(--b);padding:16px;min-height:300px;max-height:500px;overflow-y:auto}
+    .rp .ph{font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+    .rc{font-size:14px;line-height:1.7;white-space:pre-wrap}
+    .dl{font-family:'SF Mono','Fira Code',monospace;font-size:13px;line-height:1.6;padding:1px 8px}
+    .da{background:#dcfce7;color:#166534}
+    .dr{background:#fef2f2;color:#991b1b;text-decoration:line-through}
+    .sg{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:20px 0}
+    .sc{background:var(--w);border-radius:var(--r);border:1px solid var(--b);padding:16px;text-align:center}
+    .sc .sv{font-size:32px;font-weight:700;line-height:1;margin:8px 0}
+    .sc .sl{font-size:12px;color:var(--ts)}
+    .sc .bar{height:4px;border-radius:2px;background:#f3f4f6;margin-top:12px;overflow:hidden}
+    .sc .bf{height:100%;border-radius:2px;transition:width .6s ease}
+    .gb{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:16px;font-size:32px;font-weight:800;color:#fff}
+    .ec{border:1px solid var(--b);border-radius:8px;overflow:hidden}
+    .vp{padding:12px 16px;background:#fafafa;border-top:1px solid var(--b);max-height:160px;overflow-y:auto}
+    .vi{font-size:13px;padding:4px 0;display:flex;align-items:center;gap:6px}
+    .ve{color:var(--err)}.vw{color:var(--warn)}.vs{color:var(--ok)}
+    .vt{max-height:500px;overflow-y:auto;padding-right:8px}
+    .ti{padding:12px 16px;border-radius:8px;cursor:pointer;border:1px solid transparent;margin-bottom:8px;transition:all .15s}
+    .ti:hover{border-color:var(--cb);background:var(--cb)}
+    .ti.ac{border-color:var(--c);background:var(--cb)}
+    .ti .vg{font-size:12px;font-weight:600;color:var(--c)}
+    .ti .vtm{font-size:11px;color:var(--tm);margin-top:2px}
+    .tg{display:inline-flex;align-items:center;padding:2px 10px;border-radius:6px;font-size:12px;font-weight:500}
+    .tp{background:var(--cb);color:var(--c)}.tgs{background:#dcfce7;color:#166534}.tgw{background:#fef3c7;color:#92400e}.tgd{background:#fef2f2;color:#991b1b}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--b);background:var(--w);color:var(--t)}
+    .btn:hover{border-color:var(--c);color:var(--c)}
+    .bp{background:var(--c);color:#fff;border-color:var(--c)}.bp:hover{background:var(--cl);border-color:var(--cl)}
+    .bs{padding:4px 12px;font-size:13px}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .suc{border:1px solid var(--b);border-radius:10px;padding:16px;margin-bottom:10px;background:var(--w)}
+    .suc .sh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+    .suc .st{font-size:14px;color:var(--t);line-height:1.6}
+    .suc pre{background:#f8fafc;border:1px solid var(--b);border-radius:6px;padding:12px;margin-top:8px;font-size:12px;overflow-x:auto}
+    .mr{display:flex;gap:16px;margin:16px 0}
+    .mi{flex:1;background:var(--w);border:1px solid var(--b);border-radius:10px;padding:14px;text-align:center}
+    .mi .mv{font-size:24px;font-weight:700}.mi .ml{font-size:12px;color:var(--ts);margin-top:4px}
+    @media(max-width:768px){.sb{width:60px}.sb-logo .txt,.ni span{display:none}.cg{grid-template-columns:1fr}.sg{grid-template-columns:repeat(2,1fr)}}
+  </style>
+</head>
+<body>
+  <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#6b7280">加载中...</div></div>
+
+  <script type="text/babel">
+    /* ========== Globals ========== */
+    const { useState, useEffect, useCallback, useRef, useMemo } = React;
+    const {
+      Button, Input, Select, Card, Tag, Space, Tabs, Table, Progress,
+      Collapse, Statistic, Empty, Spin, Tooltip, Modal, Popconfirm,
+      Segmented, message, ConfigProvider, Typography, Divider
+    } = antd;
+    const { TextArea } = Input;
+    const { Title, Text } = Typography;
+    const {
+      RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
+      BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
+      Tooltip: RTooltip, Legend, ResponsiveContainer
+    } = Recharts;
+
+    /* ========== Inline SVG Icons ========== */
+    const I = {
+      Cfg:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('circle',{cx:12,cy:12,r:3}),React.createElement('path',{d:'M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z'})),
+      Edt:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('path',{d:'M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7'}),React.createElement('path',{d:'M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z'})),
+      Cmp:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('polyline',{points:'17 1 21 5 17 9'}),React.createElement('path',{d:'M3 11V9a4 4 0 014-4h14'}),React.createElement('polyline',{points:'7 23 3 19 7 15'}),React.createElement('path',{d:'M21 13v2a4 4 0 01-4 4H3'})),
+      Br:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('line',{x1:6,y1:3,x2:6,y2:15}),React.createElement('circle',{cx:18,cy:6,r:3}),React.createElement('circle',{cx:6,cy:18,r:3}),React.createElement('path',{d:'M18 9a9 9 0 01-9 9'})),
+      Rdr:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('polygon',{points:'12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2'})),
+      Plus:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('line',{x1:12,y1:5,x2:12,y2:19}),React.createElement('line',{x1:5,y1:12,x2:19,y2:12})),
+      Del:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('polyline',{points:'3 6 5 6 21 6'}),React.createElement('path',{d:'M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2'})),
+      Ok:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('polyline',{points:'20 6 9 17 4 12'})),
+      Play:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('polygon',{points:'5 3 19 12 5 21 5 3'})),
+      Up:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2},React.createElement('polyline',{points:'16 16 12 12 8 16'}),React.createElement('line',{x1:12,y1:12,x2:12,y2:21}),React.createElement('path',{d:'M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3'})),
+      Gh:()=>React.createElement('svg',{viewBox:'0 0 24 24',fill:'currentColor'},React.createElement('path',{d:'M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z'})),
+    };
+
+    /* ========== Simple Global Store ========== */
+    let _state = { tab:'config', models:[], skills:[], tests:[], evals:[] };
+    const _subs = new Set();
+    function getState(){ return _state; }
+    function setState(p){
+      _state = typeof p==='function'? {..._state,...p(_state)} : {..._state,...p};
+      _subs.forEach(fn=>fn(_state));
+    }
+    function useStore(sel){
+      const [v,setV]=useState(()=>sel?sel(_state):_state);
+      useEffect(()=>{
+        const fn=s=>{const n=sel?sel(s):s; setV(prev=>JSON.stringify(prev)===JSON.stringify(n)?prev:n)};
+        _subs.add(fn);return()=>_subs.delete(fn);
+      },[]);
+      return v;
+    }
+
+    /* ========== Benchmark Data ========== */
+    const BENCH=[
+      {name:"LangChain Web Search",repo:"langchain-ai/langchain",stars:92300,scores:{structure:92,coverage:95,trigger:88,robustness:85,maintainability:90}},
+      {name:"Semantic Kernel Planner",repo:"microsoft/semantic-kernel",stars:18500,scores:{structure:95,coverage:91,trigger:93,robustness:90,maintainability:94}},
+      {name:"AutoGPT WebBrowser",repo:"Significant-Gravitas/AutoGPT",stars:160000,scores:{structure:88,coverage:92,trigger:86,robustness:82,maintainability:85}},
+      {name:"OpenAI Retrieval Plugin",repo:"openai/chatgpt-retrieval-plugin",stars:21000,scores:{structure:96,coverage:93,trigger:95,robustness:91,maintainability:93}},
+      {name:"LlamaIndex Query Engine",repo:"run-llama/llama_index",stars:33000,scores:{structure:90,coverage:94,trigger:89,robustness:87,maintainability:88}},
+      {name:"CrewAI Agent Tool",repo:"joaomdmoura/crewAI",stars:17000,scores:{structure:87,coverage:89,trigger:84,robustness:80,maintainability:86}},
+      {name:"Dify API Tool",repo:"langgenius/dify",stars:36000,scores:{structure:93,coverage:90,trigger:91,robustness:88,maintainability:92}},
+      {name:"Haystack Pipeline",repo:"deepset-ai/haystack",stars:14000,scores:{structure:91,coverage:93,trigger:87,robustness:89,maintainability:91}},
+    ];
+    const DIMS=[
+      {key:'structure',label:'结构完整性',desc:'Skill 文件结构是否规范，包含必要字段和说明'},
+      {key:'coverage',label:'功能覆盖度',desc:'Skill 功能实现的完整性和接口深度'},
+      {key:'trigger',label:'触发准确率',desc:'Trigger 规则匹配精确度，避免误触发'},
+      {key:'robustness',label:'鲁棒性',desc:'异常处理、边界条件覆盖'},
+      {key:'maintainability',label:'可维护性',desc:'代码可读性、文档完整性'},
+    ];
+    const benchAvg=k=>Math.round(BENCH.reduce((a,b)=>a+b.scores[k],0)/BENCH.length);
+
+    /* ========== Skill Parser ========== */
+    function detectFmt(c){
+      if(!c||!c.trim())return 'unknown';
+      const t=c.trim();
+      if(t.startsWith('---')&&t.includes('triggers:'))return 'skill_md';
+      try{const o=JSON.parse(t);if(o.name&&(o.parameters||o.function))return 'function_call';}catch{}
+      if(t.includes('{{')||t.includes('{%')||(t.includes('System:')&&t.includes('User:')))return 'prompt_template';
+      if(t.startsWith('---')||t.startsWith('#'))return 'skill_md';
+      return 'unknown';
+    }
+    function parseSkill(content,format){
+      const fmt=format==='auto'?detectFmt(content):format;
+      const errs=[],warns=[];let parsed={};
+      if(fmt==='skill_md'){
+        if(!content.includes('---'))errs.push('缺少 YAML Frontmatter 分隔符 (---)');
+        const s=content.split('---').filter(Boolean);
+        if(s.length>=1){const m=s[0];if(!m.includes('name:'))errs.push('缺少 name 字段');if(!m.includes('description:'))warns.push('建议添加 description');if(!m.includes('triggers:'))warns.push('建议添加 triggers');const nm=m.match(/name:\s*(.+)/);parsed.name=nm?nm[1].trim():'Unnamed';}
+        if(s.length>=2)parsed.body=s.slice(1).join('---');else warns.push('缺少指令内容');
+      }else if(fmt==='function_call'){
+        try{parsed=JSON.parse(content);if(!parsed.name)errs.push('缺少 name');if(!parsed.description)warns.push('建议添加 description');if(!parsed.parameters)warns.push('缺少 parameters');}catch(e){errs.push('JSON 解析失败: '+e.message);}
+      }else if(fmt==='prompt_template'){
+        if(content.length<20)warns.push('模板内容过短');if(!content.includes('{{')&&!content.includes('{%'))warns.push('未检测到模板变量');parsed.template=content;
+      }else{errs.push('无法识别格式');}
+      return{format:fmt,parsed,errors:errs,warnings:warns,valid:errs.length===0};
+    }
+
+    /* ========== Evaluator ========== */
+    function evalSkill(content,format){
+      const r=parseSkill(content,format||'auto');
+      const len=(content||'').length,lines=(content||'').split('\n').length;
+      const clamp=(v)=>Math.min(100,Math.max(0,Math.round(v)));
+      const structure=clamp((r.valid?40:10)+(r.errors.length===0?20:0)+Math.min(20,lines*0.5)+(content.includes('description')?10:0)+(content.includes('name')?10:0));
+      const coverage=clamp(Math.min(25,len/40)+(content.includes('example')||content.includes('示例')?15:0)+(content.includes('input')||content.includes('参数')?15:0)+(content.includes('output')||content.includes('返回')?15:0)+(content.includes('error')||content.includes('错误')?10:0)+Math.min(20,(content.match(/\n#+\s/g)||[]).length*5));
+      const trigger=clamp((content.includes('trigger')||content.includes('TRIGGER')?30:0)+(content.includes('when')||content.includes('当')?15:0)+(content.includes('keyword')||content.includes('关键词')?15:0)+Math.min(20,(content.match(/["`'][\w\s]+["`']/g)||[]).length*4)+(r.format!=='unknown'?20:0));
+      const robustness=clamp((content.includes('error')||content.includes('异常')?20:0)+(content.includes('valid')||content.includes('校验')?15:0)+(content.includes('edge')||content.includes('边界')?15:0)+(content.includes('fallback')||content.includes('降级')?15:0)+(content.includes('retry')||content.includes('重试')?15:0)+Math.min(20,lines*0.3));
+      const maintainability=clamp((content.includes('version')||content.includes('版本')?15:0)+(content.includes('author')||content.includes('作者')?10:0)+(content.includes('#')?15:0)+Math.min(20,(content.match(/\/\/.+|<!--.+-->|#.+/g)||[]).length*3)+(len>100&&len<5000?20:len>5000?10:5)+(content.includes('TODO')?-5:10));
+      const scores={structure,coverage,trigger,robustness,maintainability};
+      const total=Math.round(structure*.2+coverage*.25+trigger*.25+robustness*.15+maintainability*.15);
+      const grade=total>=95?'S':total>=85?'A':total>=75?'B':total>=65?'C':'D';
+      const suggs=[];
+      if(structure<70)suggs.push({dim:'structure',pri:'高',text:'添加完整 YAML Frontmatter（name / description / version / triggers）',ex:'---\nname: my-skill\ndescription: ...\nversion: 1.0.0\ntriggers:\n  - keyword1\n---'});
+      if(coverage<70)suggs.push({dim:'coverage',pri:'高',text:'补充输入/输出说明、使用示例和错误处理文档',ex:'## 输入参数\n- query: string (必填)\n\n## 输出格式\nJSON 对象\n\n## 示例\n...'});
+      if(trigger<70)suggs.push({dim:'trigger',pri:'高',text:'添加 triggers 列表和触发条件描述',ex:'triggers:\n  - "搜索"\n  - "查找"\n  - "search"'});
+      if(robustness<60)suggs.push({dim:'robustness',pri:'中',text:'添加错误处理、边界条件和降级策略'});
+      if(maintainability<60)suggs.push({dim:'maintainability',pri:'中',text:'添加版本号、变更日志和清晰文档结构'});
+      if(total>=80)suggs.push({dim:'general',pri:'低',text:'整体质量良好！可添加更多场景和测试用例进一步提升'});
+      return{scores,total,grade,suggs,parseResult:r};
+    }
+
+    /* ========== API Client ========== */
+    async function chatAPI({provider,apiKey,model,messages,systemPrompt,tools}){
+      const t0=Date.now();
+      try{
+        const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider,apiKey,model,messages,systemPrompt,tools})});
+        if(!res.ok)throw new Error('API '+res.status);
+        const d=await res.json();return{content:d.content||'',usage:d.usage||{},latency:Date.now()-t0};
+      }catch(e){return{content:`[API 调用失败] ${e.message}\n\n请确保后端 (node server.js) 已启动且 API Key 有效。`,usage:{},latency:Date.now()-t0,error:true};}
+    }
+
+    /* ========== Provider Config ========== */
+    const PM={openai:['gpt-4o','gpt-4-turbo','gpt-3.5-turbo','gpt-4o-mini'],anthropic:['claude-sonnet-4-20250514','claude-haiku-4-20250414','claude-opus-4-20250514'],doubao:['doubao-pro-256k','doubao-lite-128k','doubao-pro-32k']};
+    const PL={openai:'OpenAI',anthropic:'Anthropic',doubao:'豆包 Doubao'};
+
+    /* ═════════════════════════════════════
+       1. ModelConfig
+       ═════════════════════════════════════ */
+    function ModelConfig(){
+      const models=useStore(s=>s.models);
+      const [testing,setTesting]=useState({});
+      const add=()=>setState(s=>({models:[...s.models,{id:Date.now()+'',provider:'openai',model:'gpt-4o',apiKey:'',name:'',status:'off'}]}));
+      const upd=(id,u)=>setState(s=>({models:s.models.map(m=>m.id===id?{...m,...u}:m)}));
+      const del=(id)=>setState(s=>({models:s.models.filter(m=>m.id!==id)}));
+      const test=async(c)=>{
+        setTesting(t=>({...t,[c.id]:true}));
+        const r=await chatAPI({provider:c.provider,apiKey:c.apiKey,model:c.model,messages:[{role:'user',content:'Hi, reply "ok"'}]});
+        upd(c.id,{status:r.error?'off':'on'});
+        message[r.error?'warning':'success'](r.error?'连接失败，请检查 API Key':'连接成功！');
+        setTesting(t=>({...t,[c.id]:false}));
+      };
+      return(
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+            <div><h3 style={{fontSize:18,fontWeight:600,margin:0}}>模型配置</h3><p style={{color:'var(--ts)',fontSize:13,margin:'4px 0 0'}}>接入 OpenAI / Anthropic / 豆包，配置 API Key</p></div>
+            <button className="btn bp" onClick={add}><I.Plus/> 添加模型</button>
+          </div>
+          {models.length===0&&<div className="cd" style={{textAlign:'center',padding:60,color:'var(--tm)'}}><div style={{fontSize:40,marginBottom:12}}>🤖</div><p>尚未配置模型，点击「添加模型」开始</p></div>}
+          <div className="mg">{models.map(c=>(
+            <div key={c.id} className="cd" style={{position:'relative'}}>
+              <div style={{position:'absolute',top:16,right:16,width:10,height:10,borderRadius:'50%',background:c.status==='on'?'var(--ok)':'var(--tm)',boxShadow:c.status==='on'?'0 0 0 3px rgba(16,185,129,.15)':'none'}}/>
+              <div className="fg"><label className="fl">服务商</label><Select value={c.provider} onChange={v=>upd(c.id,{provider:v,model:PM[v][0]})} style={{width:'100%'}} options={Object.entries(PL).map(([k,v])=>({value:k,label:v}))}/></div>
+              <div className="fg"><label className="fl">模型</label><Select value={c.model} onChange={v=>upd(c.id,{model:v})} style={{width:'100%'}} options={(PM[c.provider]||[]).map(m=>({value:m,label:m}))}/></div>
+              <div className="fg"><label className="fl">API Key</label><Input.Password value={c.apiKey} onChange={e=>upd(c.id,{apiKey:e.target.value})} placeholder={c.provider==='doubao'?'Bearer xxx':'sk-...'}/></div>
+              <div className="fg"><label className="fl">显示名称（可选）</label><Input value={c.name} onChange={e=>upd(c.id,{name:e.target.value})} placeholder={PL[c.provider]+' - '+c.model}/></div>
+              <div style={{display:'flex',gap:8,marginTop:16}}>
+                <button className="btn bp bs" style={{flex:1}} disabled={!c.apiKey||testing[c.id]} onClick={()=>test(c)}>{testing[c.id]?'测试中...':'✓ 测试连接'}</button>
+                <Popconfirm title="确认删除？" onConfirm={()=>del(c.id)}><button className="btn bs" style={{color:'var(--err)'}}><I.Del/></button></Popconfirm>
+              </div>
+            </div>
+          ))}</div>
+        </div>
+      );
+    }
+
+    /* ═════════════════════════════════════
+       2. SkillEditor
+       ═════════════════════════════════════ */
+    const TPL={
+      skill_md:`---\nname: my-skill\ndescription: 示例 Skill\nversion: 1.0.0\ntriggers:\n  - "示例关键词"\n  - "example trigger"\n---\n\n# My Skill\n\n## 功能描述\n这个 Skill 用于...\n\n## 输入参数\n- query: 用户查询内容 (string, 必填)\n\n## 输出格式\n返回 JSON 响应\n\n## 使用示例\n当用户说「示例关键词 xxx」时触发\n\n## 错误处理\n- 输入为空时：提示用户输入\n- API 超时时：返回缓存结果`,
+      function_call:`{\n  "name": "search_web",\n  "description": "搜索互联网获取最新信息",\n  "parameters": {\n    "type": "object",\n    "properties": {\n      "query": { "type": "string", "description": "搜索关键词" },\n      "max_results": { "type": "integer", "description": "最大结果数", "default": 5 }\n    },\n    "required": ["query"]\n  }\n}`,
+      prompt_template:`System: 你是一个专业的{{role}}助手。\n\n## 核心能力\n- {{capability_1}}\n- {{capability_2}}\n\n## 行为规范\n当用户提出{{task_type}}请求时：\n1. 分析用户意图\n2. 调用工具获取信息\n3. 以{{output_format}}格式返回\n\n## 错误处理\n无法完成时说明原因并给出替代方案。\n\nUser: {{user_input}}`
+    };
+
+    function SkillEditor(){
+      const skills=useStore(s=>s.skills);
+      const [content,setContent]=useState('');
+      const [fmt,setFmt]=useState('skill_md');
+      const [name,setName]=useState('');
+      const val=useMemo(()=>parseSkill(content,fmt),[content,fmt]);
+
+      const onUpload=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const t=ev.target.result;const d=detectFmt(t);setContent(t);if(d!=='unknown')setFmt(d);message.success('已导入: '+d);};r.readAsText(f);};
+      const save=()=>{
+        if(!content.trim()){message.warning('内容为空');return;}
+        const n=name||val.parsed?.name||('Skill-'+Date.now());
+        const ex=skills.find(s=>s.name===n);
+        if(ex){
+          setState(s=>({skills:s.skills.map(sk=>sk.name===n?{...sk,content,format:fmt,versions:[...sk.versions,{content,timestamp:Date.now(),desc:'v'+(sk.versions.length+1)}],currentVersionIndex:sk.versions.length}:sk)}));
+          message.success('新版本 v'+(ex.versions.length+1)+' 已保存');
+        }else{
+          setState(s=>({skills:[...s.skills,{id:Date.now()+'',name:n,content,format:fmt,versions:[{content,timestamp:Date.now(),desc:'v1 初始版本'}],currentVersionIndex:0}]}));
+          message.success('Skill 已保存');
+        }
+      };
+      return(
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:8}}>
+            <div><h3 style={{fontSize:18,fontWeight:600,margin:0}}>Skill 编辑器</h3><p style={{color:'var(--ts)',fontSize:13,margin:'4px 0 0'}}>创建、编辑和验证 Skill 定义</p></div>
+            <Space><Input placeholder="Skill 名称" value={name} onChange={e=>setName(e.target.value)} style={{width:160}}/><button className="btn bp" onClick={save} disabled={!content.trim()}><I.Ok/> 保存 Skill</button></Space>
+          </div>
+          <div className="cd" style={{padding:12}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+              <Segmented value={fmt} onChange={setFmt} options={[{label:'SKILL.md',value:'skill_md'},{label:'Function Call',value:'function_call'},{label:'Prompt Template',value:'prompt_template'}]}/>
+              <Space>
+                <button className="btn bs" onClick={()=>setContent(TPL[fmt])}>📋 加载模板</button>
+                <label className="btn bs" style={{cursor:'pointer'}}><I.Up/> 上传文件<input type="file" accept=".md,.json,.txt,.yaml,.yml" style={{display:'none'}} onChange={onUpload}/></label>
+              </Space>
+            </div>
+          </div>
+          <div className="ec" style={{marginTop:12}}>
+            <TextArea value={content} onChange={e=>setContent(e.target.value)} placeholder="在此输入 Skill 定义，或用上方模板快速开始..." autoSize={{minRows:18,maxRows:28}} style={{fontFamily:"'SF Mono','Fira Code',Consolas,monospace",fontSize:13,lineHeight:1.6,border:'none',resize:'none',padding:16}}/>
+            <div className="vp">
+              {val.errors.length===0&&val.warnings.length===0&&content.trim()&&<div className="vi vs">✅ 格式验证通过 ({fmt})</div>}
+              {val.errors.map((e,i)=><div key={'e'+i} className="vi ve">❌ {e}</div>)}
+              {val.warnings.map((w,i)=><div key={'w'+i} className="vi vw">⚠️ {w}</div>)}
+              {!content.trim()&&<div className="vi" style={{color:'var(--tm)'}}>等待输入...</div>}
+            </div>
+          </div>
+          {skills.length>0&&<div style={{marginTop:16}}><div className="ct">已保存 ({skills.length})</div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{skills.map(s=><Tag key={s.id} color="purple" closable onClose={()=>setState(st=>({skills:st.skills.filter(sk=>sk.id!==s.id)}))} onClick={()=>{setContent(s.content);setFmt(s.format);setName(s.name);}} style={{cursor:'pointer',padding:'4px 12px'}}>{s.name} <span style={{opacity:.6}}>v{s.versions.length}</span></Tag>)}</div></div>}
+        </div>
+      );
+    }
+
+    /* ═════════════════════════════════════
+       3. ComparePanel
+       ═════════════════════════════════════ */
+    function ComparePanel(){
+      const models=useStore(s=>s.models);
+      const skills=useStore(s=>s.skills);
+      const [selM,setSelM]=useState(null);
+      const [selS,setSelS]=useState(null);
+      const [prompt,setPrompt]=useState('');
+      const [loading,setLoading]=useState(false);
+      const [bare,setBare]=useState(null);
+      const [enhanced,setEnhanced]=useState(null);
+      const [mode,setMode]=useState('side');
+      const [hist,setHist]=useState([]);
+
+      const run=async()=>{
+        if(!selM||!prompt.trim()){message.warning('请选择模型并输入 Prompt');return;}
+        const mc=models.find(m=>m.id===selM);if(!mc)return;
+        setLoading(true);
+        const bp={provider:mc.provider,apiKey:mc.apiKey,model:mc.model};
+        const sk=selS?skills.find(s=>s.id===selS):null;
+        const [b,e]=await Promise.all([
+          chatAPI({...bp,messages:[{role:'user',content:prompt}]}),
+          sk?chatAPI({...bp,messages:[{role:'user',content:prompt}],systemPrompt:sk.content}):null
+        ]);
+        setBare(b);setEnhanced(e||b);
+        setHist(h=>[{prompt:prompt.slice(0,60),model:mc.name||mc.model,time:new Date().toLocaleString()},...h.slice(0,19)]);
+        setLoading(false);
+      };
+
+      const diff=useMemo(()=>{
+        if(!bare||!enhanced)return[];
+        const a=bare.content.split('\n'),b=enhanced.content.split('\n'),r=[];
+        for(let i=0;i<Math.max(a.length,b.length);i++){
+          if(a[i]===b[i])r.push({t:'s',x:a[i]||''});
+          else{if(a[i])r.push({t:'r',x:a[i]});if(b[i])r.push({t:'a',x:b[i]});}
+        }return r;
+      },[bare,enhanced]);
+
+      return(
+        <div>
+          <h3 style={{fontSize:18,fontWeight:600,marginBottom:4}}>对比测试</h3>
+          <p style={{color:'var(--ts)',fontSize:13,marginBottom:20}}>同一 Prompt：裸模型 vs Skill 增强模型效果对比</p>
+          <div className="cd">
+            <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'end'}}>
+              <div style={{flex:'1 1 200px'}}><label className="fl">选择模型</label><Select placeholder="选择已配置模型" value={selM} onChange={setSelM} style={{width:'100%'}} options={models.map(c=>({value:c.id,label:c.name||PL[c.provider]+' - '+c.model}))}/></div>
+              <div style={{flex:'1 1 200px'}}><label className="fl">选择 Skill</label><Select placeholder="留空为裸模型" value={selS} onChange={setSelS} allowClear style={{width:'100%'}} options={skills.map(s=>({value:s.id,label:s.name+' ('+s.format+')'}))}/></div>
+              <button className="btn bp" onClick={run} disabled={loading||!selM||!prompt.trim()}>{loading?'测试中...':'▶ 运行对比'}</button>
+            </div>
+            <TextArea value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="输入测试 Prompt..." autoSize={{minRows:3,maxRows:6}} style={{marginTop:12}}/>
+          </div>
+          {(bare||loading)&&<div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'16px 0 12px'}}>
+              <span style={{fontWeight:600,fontSize:15}}>测试结果</span>
+              <Segmented value={mode} onChange={setMode} options={[{label:'并排',value:'side'},{label:'Diff',value:'diff'}]}/>
+            </div>
+            {mode==='side'?<div className="cg">
+              <div className="rp"><div className="ph"><span className="tg tgw">裸模型</span>{bare&&<span style={{fontSize:12,color:'var(--tm)'}}>{bare.latency}ms</span>}</div>{loading?<Spin/>:<div className="rc">{bare?.content}</div>}</div>
+              <div className="rp"><div className="ph"><span className="tg tp">Skill 增强</span>{enhanced&&<span style={{fontSize:12,color:'var(--tm)'}}>{enhanced.latency}ms</span>}</div>{loading?<Spin/>:<div className="rc">{enhanced?.content}</div>}</div>
+            </div>:<div className="cd" style={{maxHeight:500,overflowY:'auto'}}>{diff.map((d,i)=><div key={i} className={'dl'+(d.t==='a'?' da':d.t==='r'?' dr':'')}>{d.t==='a'?'+ ':d.t==='r'?'- ':'  '}{d.x}</div>)}</div>}
+            {bare&&enhanced&&!loading&&<div className="mr">
+              <div className="mi"><div className="mv" style={{color:'var(--c)'}}>{bare.latency}ms</div><div className="ml">裸模型延迟</div></div>
+              <div className="mi"><div className="mv" style={{color:'var(--c)'}}>{enhanced.latency}ms</div><div className="ml">增强延迟</div></div>
+              <div className="mi"><div className="mv">{bare.content.length}</div><div className="ml">裸模型字数</div></div>
+              <div className="mi"><div className="mv">{enhanced.content.length}</div><div className="ml">增强字数</div></div>
+            </div>}
+          </div>}
+          {hist.length>0&&<Collapse style={{marginTop:16}} items={[{key:'h',label:'测试历史 ('+hist.length+')',children:<div>{hist.map((h,i)=><div key={i} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:13}}><span>{h.prompt}...</span><span style={{color:'var(--tm)',flexShrink:0}}>{h.model} · {h.time}</span></div>)}</div>}]}/>}
+        </div>
+      );
+    }
+
+    /* ═════════════════════════════════════
+       4. VersionManager
+       ═════════════════════════════════════ */
+    function VersionManager(){
+      const skills=useStore(s=>s.skills);
+      const models=useStore(s=>s.models);
+      const [sid,setSid]=useState(null);
+      const [vi,setVi]=useState(0);
+      const [diffOpen,setDiffOpen]=useState(false);
+      const [da,setDa]=useState(0);
+      const [db,setDb]=useState(1);
+      const [abOpen,setAbOpen]=useState(false);
+      const [abP,setAbP]=useState('');
+      const [abA,setAbA]=useState(0);
+      const [abB,setAbB]=useState(1);
+      const [abR,setAbR]=useState(null);
+      const [abL,setAbL]=useState(false);
+      const sk=skills.find(s=>s.id===sid);
+      const vs=sk?.versions||[];
+      useEffect(()=>{if(!sid&&skills.length>0)setSid(skills[0].id);},[skills]);
+
+      const rollback=(i)=>{if(!sk)return;setState(s=>({skills:s.skills.map(x=>x.id===sk.id?{...x,content:x.versions[i].content,currentVersionIndex:i}:x)}));message.success('已回滚到 v'+(i+1));};
+      const exp=(i)=>{const v=vs[i];if(!v)return;const b=new Blob([v.content],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=sk.name+'_v'+(i+1)+(sk.format==='function_call'?'.json':'.md');a.click();};
+      const runAB=async()=>{
+        if(!abP.trim()){message.warning('请输入 Prompt');return;}
+        const mc=models.find(m=>m.apiKey)||models[0];
+        if(!mc){message.warning('请先配置模型');return;}
+        setAbL(true);
+        const bp={provider:mc.provider,apiKey:mc.apiKey,model:mc.model};
+        const [ra,rb]=await Promise.all([chatAPI({...bp,messages:[{role:'user',content:abP}],systemPrompt:vs[abA]?.content||''}),chatAPI({...bp,messages:[{role:'user',content:abP}],systemPrompt:vs[abB]?.content||''})]);
+        setAbR({a:ra,b:rb});setAbL(false);
+      };
+      const cdiff=(a,b)=>{const la=(a||'').split('\n'),lb=(b||'').split('\n'),r=[];for(let i=0;i<Math.max(la.length,lb.length);i++){if(la[i]===lb[i])r.push({t:'s',x:la[i]||''});else{if(la[i])r.push({t:'r',x:la[i]});if(lb[i])r.push({t:'a',x:lb[i]});}}return r;};
+
+      if(!skills.length)return<div style={{textAlign:'center',padding:80,color:'var(--tm)'}}><div style={{fontSize:40,marginBottom:12}}>📝</div><p>请先在 Skill 编辑器中创建 Skill</p></div>;
+      return(
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+            <div><h3 style={{fontSize:18,fontWeight:600,margin:0}}>版本管理</h3><p style={{color:'var(--ts)',fontSize:13,margin:'4px 0 0'}}>版本历史、Diff 对比、回滚、A/B 测试</p></div>
+            <Select value={sid} onChange={v=>{setSid(v);setVi(0);}} style={{width:260}} options={skills.map(s=>({value:s.id,label:s.name+' ('+s.versions.length+' 版本)'}))}/>
+          </div>
+          {sk&&<div style={{display:'flex',gap:16}}>
+            <div style={{width:260,flexShrink:0}}><div className="cd" style={{padding:12}}>
+              <div className="ct">版本历史</div>
+              <div className="vt">{vs.map((v,i)=><div key={i} className={'ti'+(vi===i?' ac':'')} onClick={()=>setVi(i)}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <span className="vg">v{i+1}</span>
+                  {i===sk.currentVersionIndex&&<span className="tg tgs" style={{fontSize:10}}>当前</span>}
+                </div>
+                <div className="vtm">{new Date(v.timestamp).toLocaleString()}</div>
+                <div style={{fontSize:12,color:'var(--ts)',marginTop:2}}>{v.desc||'版本 '+(i+1)}</div>
+              </div>)}</div>
+              <Divider style={{margin:'12px 0'}}/>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,fontSize:12}}>
+                <div><span style={{color:'var(--tm)'}}>总版本</span><br/><strong>{vs.length}</strong></div>
+                <div><span style={{color:'var(--tm)'}}>内容长度</span><br/><strong>{(vs[vi]?.content||'').length}</strong></div>
+              </div>
+            </div></div>
+            <div style={{flex:1}}><div className="cd">
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
+                <Space><span className="tg tp">v{vi+1}</span><span style={{fontSize:13,color:'var(--ts)'}}>{new Date(vs[vi]?.timestamp).toLocaleString()}</span></Space>
+                <Space wrap>
+                  {vs.length>=2&&<button className="btn bs" onClick={()=>{setDa(Math.max(0,vi-1));setDb(vi);setDiffOpen(true);}}><I.Cmp/> 对比</button>}
+                  <button className="btn bs" onClick={()=>{setAbA(Math.max(0,vi-1));setAbB(vi);setAbOpen(true);}}>🧪 A/B</button>
+                  <button className="btn bs" onClick={()=>exp(vi)}>⬇ 导出</button>
+                  {vi!==sk.currentVersionIndex&&<Popconfirm title={'回滚到 v'+(vi+1)+'？'} onConfirm={()=>rollback(vi)}><button className="btn bs" style={{color:'var(--warn)'}}>↩ 回滚</button></Popconfirm>}
+                </Space>
+              </div>
+              <TextArea value={vs[vi]?.content||''} readOnly autoSize={{minRows:16,maxRows:24}} style={{fontFamily:"'SF Mono',monospace",fontSize:13,background:'#fafafa'}}/>
+            </div></div>
+          </div>}
+          <Modal title="版本对比" open={diffOpen} onCancel={()=>setDiffOpen(false)} width={900} footer={null}>
+            <div style={{display:'flex',gap:12,marginBottom:16}}>
+              <Select value={da} onChange={setDa} style={{width:200}} options={vs.map((_,i)=>({value:i,label:'v'+(i+1)}))}/>
+              <span style={{lineHeight:'32px'}}>vs</span>
+              <Select value={db} onChange={setDb} style={{width:200}} options={vs.map((_,i)=>({value:i,label:'v'+(i+1)}))}/>
+            </div>
+            <div style={{maxHeight:500,overflowY:'auto',border:'1px solid var(--b)',borderRadius:8,padding:8}}>
+              {cdiff(vs[da]?.content,vs[db]?.content).map((d,i)=><div key={i} className={'dl'+(d.t==='a'?' da':d.t==='r'?' dr':'')}>{d.t==='a'?'+ ':d.t==='r'?'- ':'  '}{d.x}</div>)}
+            </div>
+          </Modal>
+          <Modal title="A/B 测试" open={abOpen} onCancel={()=>{setAbOpen(false);setAbR(null);}} width={900} footer={null}>
+            <div style={{display:'flex',gap:12,marginBottom:12,alignItems:'end'}}>
+              <div><label className="fl">版本 A</label><Select value={abA} onChange={setAbA} style={{width:160}} options={vs.map((_,i)=>({value:i,label:'v'+(i+1)}))}/></div>
+              <span style={{lineHeight:'32px',fontWeight:600}}>vs</span>
+              <div><label className="fl">版本 B</label><Select value={abB} onChange={setAbB} style={{width:160}} options={vs.map((_,i)=>({value:i,label:'v'+(i+1)}))}/></div>
+              <button className="btn bp" onClick={runAB} disabled={abL}>{abL?'测试中...':'▶ 运行'}</button>
+            </div>
+            <TextArea value={abP} onChange={e=>setAbP(e.target.value)} placeholder="输入测试 Prompt..." autoSize={{minRows:2,maxRows:4}} style={{marginBottom:16}}/>
+            {abR&&<div className="cg">
+              <div className="rp"><div className="ph"><span className="tg tp">v{abA+1}</span><span style={{fontSize:12,color:'var(--tm)'}}>{abR.a.latency}ms</span></div><div className="rc">{abR.a.content}</div></div>
+              <div className="rp"><div className="ph"><span className="tg tgw">v{abB+1}</span><span style={{fontSize:12,color:'var(--tm)'}}>{abR.b.latency}ms</span></div><div className="rc">{abR.b.content}</div></div>
+            </div>}
+          </Modal>
+        </div>
+      );
+    }
+
+    /* ═════════════════════════════════════
+       5. QualityEval
+       ═════════════════════════════════════ */
+    function QualityEval(){
+      const skills=useStore(s=>s.skills);
+      const [sid,setSid]=useState(null);
+      const [ev,setEv]=useState(null);
+      const [loading,setLoading]=useState(false);
+      const [ghToken,setGhToken]=useState('');
+      const [hist,setHist]=useState([]);
+      const sk=skills.find(s=>s.id===sid);
+      const scoreColor=s=>s>=80?'var(--ok)':s>=60?'var(--warn)':'var(--err)';
+      const gradeColor=g=>({S:'#ef4444',A:'#f59e0b',B:'#6366f1',C:'#06b6d4',D:'#9ca3af'})[g]||'#9ca3af';
+
+      const run=()=>{
+        if(!sk){message.warning('请选择 Skill');return;}
+        setLoading(true);
+        setTimeout(()=>{
+          const r=evalSkill(sk.content,sk.format);
+          setEv(r);setHist(h=>[{name:sk.name,...r,ts:Date.now()},...h.slice(0,9)]);
+          setLoading(false);message.success('评估完成！');
+        },600);
+      };
+
+      const radarData=ev?DIMS.map(d=>({dim:d.label,'当前 Skill':ev.scores[d.key],'行业基准':benchAvg(d.key)})):[];
+      const tableData=[...BENCH.map((b,i)=>({key:i,name:b.name,repo:b.repo,stars:b.stars,...b.scores,total:Math.round(b.scores.structure*.2+b.scores.coverage*.25+b.scores.trigger*.25+b.scores.robustness*.15+b.scores.maintainability*.15),cur:false})),...(sk&&ev?[{key:'cur',name:'⭐ '+sk.name,repo:'当前 Skill',stars:'—',...ev.scores,total:ev.total,cur:true}]:[])].sort((a,b)=>b.total-a.total);
+
+      return(
+        <div>
+          <h3 style={{fontSize:18,fontWeight:600,marginBottom:4}}>质量评估</h3>
+          <p style={{color:'var(--ts)',fontSize:13,marginBottom:20}}>五维度量化评分 + GitHub 高星 Skill 对标分析</p>
+          <div className="cd">
+            <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'end'}}>
+              <div style={{flex:'1 1 200px'}}><label className="fl">选择 Skill</label><Select placeholder="选择 Skill" value={sid} onChange={setSid} style={{width:'100%'}} options={skills.map(s=>({value:s.id,label:s.name+' ('+s.format+')'}))}/></div>
+              <div style={{flex:'1 1 200px'}}><label className="fl">GitHub Token（可选）</label><Input.Password value={ghToken} onChange={e=>setGhToken(e.target.value)} placeholder="ghp_..."/></div>
+              <button className="btn bp" onClick={run} disabled={loading||!sid}>{loading?'评估中...':'📊 开始评估'}</button>
+            </div>
+          </div>
+          {!skills.length&&<div style={{textAlign:'center',padding:60,color:'var(--tm)',marginTop:40}}><div style={{fontSize:40,marginBottom:12}}>📊</div><p>请先在 Skill 编辑器中创建 Skill</p></div>}
+          {ev&&<div>
+            <div style={{display:'flex',gap:20,marginTop:20,alignItems:'flex-start'}}>
+              <div className="cd" style={{flex:'0 0 160px',textAlign:'center',padding:24}}>
+                <div className="gb" style={{background:gradeColor(ev.grade),margin:'0 auto 12px'}}>{ev.grade}</div>
+                <div style={{fontSize:28,fontWeight:700}}>{ev.total}</div>
+                <div style={{fontSize:12,color:'var(--tm)',marginTop:4}}>综合得分</div>
+              </div>
+              <div className="cd" style={{flex:1,padding:12}}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <RadarChart data={radarData}>
+                    <PolarGrid strokeDasharray="3 3"/>
+                    <PolarAngleAxis dataKey="dim" tick={{fontSize:12}}/>
+                    <PolarRadiusAxis angle={90} domain={[0,100]} tick={{fontSize:10}}/>
+                    <Radar name="当前 Skill" dataKey="当前 Skill" stroke="#6366f1" fill="#6366f1" fillOpacity={0.25} strokeWidth={2}/>
+                    <Radar name="行业基准" dataKey="行业基准" stroke="#9ca3af" fill="#9ca3af" fillOpacity={0.1} strokeDasharray="5 5"/>
+                    <Legend/>
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="sg">{DIMS.map(d=>{const s=ev.scores[d.key],b=benchAvg(d.key),df=s-b;return<div key={d.key} className="sc"><div className="sl">{d.label}</div><div className="sv" style={{color:scoreColor(s)}}>{s}</div><div style={{fontSize:12,color:df>=0?'var(--ok)':'var(--err)'}}>{df>=0?'↑':'↓'} {Math.abs(df)} vs 基准</div><div className="bar"><div className="bf" style={{width:s+'%',background:scoreColor(s)}}/></div></div>;})}</div>
+            <div className="cd" style={{marginTop:8}}>
+              <div className="ct"><I.Gh/> 行业基准对标</div>
+              <Table size="small" dataSource={tableData} pagination={false} columns={[
+                {title:'名称',dataIndex:'name',render:(t,r)=><span style={{fontWeight:r.cur?600:400,color:r.cur?'var(--c)':undefined}}>{t}</span>},
+                {title:'仓库',dataIndex:'repo',render:t=><span style={{fontSize:12,color:'var(--tm)'}}>{t}</span>},
+                {title:'Stars',dataIndex:'stars',render:t=>typeof t==='number'?(t/1000).toFixed(1)+'k':t},
+                ...DIMS.map(d=>({title:d.label.slice(0,2),dataIndex:d.key,width:60,render:v=><span style={{color:scoreColor(v),fontWeight:500}}>{v}</span>})),
+                {title:'总分',dataIndex:'total',render:v=><strong style={{color:'var(--c)'}}>{v}</strong>}
+              ]}/>
+            </div>
+            {ev.suggs.length>0&&<div style={{marginTop:16}}>
+              <div className="ct">💡 优化建议</div>
+              {ev.suggs.map((s,i)=><div key={i} className="suc">
+                <div className="sh"><span className={'tg '+(s.pri==='高'?'tgd':s.pri==='中'?'tgw':'tgs')}>{s.pri}</span><span className="tg tp">{DIMS.find(d=>d.key===s.dim)?.label||s.dim}</span></div>
+                <div className="st">{s.text}</div>
+                {s.ex&&<pre>{s.ex}</pre>}
+              </div>)}
+            </div>}
+            {hist.length>1&&<div className="cd" style={{marginTop:16}}>
+              <div className="ct">📈 评估趋势</div>
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={hist.slice().reverse()}>
+                  <CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="name" tick={{fontSize:11}}/><YAxis domain={[0,100]} tick={{fontSize:11}}/><RTooltip/>
+                  <Line type="monotone" dataKey="total" stroke="#6366f1" strokeWidth={2} name="总分"/>
+                </LineChart>
+              </ResponsiveContainer>
+            </div>}
+          </div>}
+        </div>
+      );
+    }
+
+    /* ═════════════════════════════════════
+       App Layout
+       ═════════════════════════════════════ */
+    const NAV=[
+      {key:'config',label:'模型配置',icon:I.Cfg},
+      {key:'editor',label:'Skill 编辑器',icon:I.Edt},
+      {key:'compare',label:'对比测试',icon:I.Cmp},
+      {key:'versions',label:'版本管理',icon:I.Br},
+      {key:'evaluate',label:'质量评估',icon:I.Rdr},
+    ];
+    const TITLES={config:'模型配置',editor:'Skill 编辑器',compare:'对比测试',versions:'版本管理',evaluate:'质量评估'};
+
+    function App(){
+      const tab=useStore(s=>s.tab);
+      const content={config:<ModelConfig/>,editor:<SkillEditor/>,compare:<ComparePanel/>,versions:<VersionManager/>,evaluate:<QualityEval/>};
+      return(
+        <ConfigProvider theme={{token:{colorPrimary:'#6366f1',borderRadius:8}}}>
+          <div className="al">
+            <div className="sb">
+              <div className="sb-logo"><div className="ico">SE</div><div className="txt">Skill Evaluator</div></div>
+              <nav className="sb-nav">{NAV.map(n=>{const Icon=n.icon;return<button key={n.key} className={'ni'+(tab===n.key?' ac':'')} onClick={()=>setState({tab:n.key})}><Icon/><span>{n.label}</span></button>;})}</nav>
+              <div style={{padding:'12px 16px',borderTop:'1px solid var(--b)',fontSize:11,color:'var(--tm)'}}>v1.0 · React + Ant Design</div>
+            </div>
+            <div className="am">
+              <div className="ah"><h2>{TITLES[tab]}</h2><div className="hs"><div className="dot"/> Ready</div></div>
+              <div className="ac-area"><div className="ci">{content[tab]||<ModelConfig/>}</div></div>
+            </div>
+          </div>
+        </ConfigProvider>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>

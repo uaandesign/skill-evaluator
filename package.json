@@ -1,0 +1,33 @@
+{
+  "name": "skill-evaluator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "vite",
+    "dev:server": "node server.js",
+    "build": "vite build && node build.mjs",
+    "preview": "vite preview",
+    "init-db": "DATABASE_URL=$DATABASE_URL node scripts/init-db.js",
+    "db:init": "node scripts/init-db.js",
+    "db:migrate": "node scripts/init-db.js"
+  },
+  "dependencies": {
+    "antd": "^5.16.0",
+    "concurrently": "^8.2.0",
+    "cors": "^2.8.5",
+    "diff": "^5.2.0",
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.11.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "recharts": "^2.12.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "vite": "^5.4.0"
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "skill-evaluator",
+  "version": 2,
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "framework": "vite",
+  "installCommand": "npm ci",
+  "env": {
+    "DATABASE_URL": {
+      "description": "PostgreSQL connection string",
+      "required": true
+    },
+    "OPENAI_API_KEY": {
+      "description": "OpenAI API Key"
+    },
+    "ANTHROPIC_API_KEY": {
+      "description": "Anthropic Claude API Key"
+    },
+    "DEEPSEEK_API_KEY": {
+      "description": "DeepSeek API Key"
+    },
+    "DOUBAO_API_KEY": {
+      "description": "Doubao (ByteDance) API Key"
+    },
+    "QWEN_API_KEY": {
+      "description": "Qwen (Alibaba) API Key"
+    },
+    "GEMINI_API_KEY": {
+      "description": "Google Gemini API Key"
+    },
+    "ADMIN_TOKEN": {
+      "description": "Admin token for database initialization",
+      "required": true
+    },
+    "NODE_ENV": {
+      "default": "production"
+    }
+  },
+  "functions": {
+    "api/**/*.js": {
+      "memory": 3008,
+      "maxDuration": 60
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/:path*",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type,Authorization" }
+      ]
+    }
+  ],
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/:path*.js" },
+    { "source": "/:path((?!api|assets).*)", "destination": "/index.html" }
+  ]
+}

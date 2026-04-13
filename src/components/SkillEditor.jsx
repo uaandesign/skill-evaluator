@@ -18,6 +18,8 @@ import {
 } from 'antd';
 import { useStore } from '../store';
 import { detectFormat, validateSkillMd, validateFunctionCall, validatePromptTemplate } from '../utils/skillParser';
+import { getPreviewType } from '../specializedRules';
+import DesignPreview from './DesignPreview';
 
 const { Text, Title, Paragraph } = Typography;
 const { Option } = Select;
@@ -55,6 +57,7 @@ const SkillEditor = () => {
   const [runError, setRunError] = useState('');
   const [runDuration, setRunDuration] = useState(null);
   const [runModelLabel, setRunModelLabel] = useState('');
+  const [outputTab, setOutputTab] = useState('preview'); // 'preview' | 'raw'
 
   // ── Derived ───────────────────────────────────────────────────
   const selectedSkill = useMemo(
@@ -614,7 +617,7 @@ const SkillEditor = () => {
         </div>
 
         {/* Output */}
-        <div>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <Text strong style={{ fontSize: 12, color: '#374151' }}>
               3. 运行结果
@@ -632,67 +635,24 @@ const SkillEditor = () => {
           </div>
 
           {runLoading ? (
-            <div
-              style={{
-                padding: 30,
-                textAlign: 'center',
-                background: '#fff',
-                border: '1px solid #e5e7eb',
-                borderRadius: 6,
-              }}
-            >
+            <div style={{ padding: 30, textAlign: 'center', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>
               <Spin />
               <Text style={{ fontSize: 12, color: '#6b7280', display: 'block', marginTop: 10 }}>
                 正在调用大模型，请稍候...
               </Text>
             </div>
           ) : runError ? (
-            <Alert
-              type="error"
-              message="运行失败"
-              description={runError}
-              showIcon={false}
-              style={{ padding: '10px 14px', fontSize: 12 }}
-            />
+            <Alert type="error" message="运行失败" description={runError} showIcon={false} style={{ padding: '10px 14px', fontSize: 12 }} />
           ) : runOutput ? (
-            <div
-              style={{
-                background: '#fff',
-                border: '1px solid #e5e7eb',
-                borderRadius: 6,
-                padding: 14,
-                maxHeight: 460,
-                overflow: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontSize: 13,
-                lineHeight: 1.7,
-                color: '#111827',
-              }}
-            >
-              {runOutput}
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    navigator.clipboard.writeText(runOutput);
-                    message.success('已复制输出');
-                  }}
-                >
-                  复制输出
-                </Button>
-              </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <DesignPreview
+                output={runOutput}
+                previewType={getPreviewType(selectedSkill?.category)}
+                previewEnv={null}
+              />
             </div>
           ) : (
-            <div
-              style={{
-                background: '#fff',
-                border: '1px dashed #e5e7eb',
-                borderRadius: 6,
-                padding: 30,
-                textAlign: 'center',
-              }}
-            >
+            <div style={{ background: '#fff', border: '1px dashed #e5e7eb', borderRadius: 6, padding: 30, textAlign: 'center' }}>
               <Text style={{ fontSize: 12, color: '#9ca3af' }}>
                 运行技能后，输出将显示在此处
               </Text>

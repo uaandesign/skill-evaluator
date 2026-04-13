@@ -52,6 +52,21 @@ export default function SkillEvaluatorModule() {
   const [evaluating, setEvaluating] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
 
+  // Volcano rule skill state
+  const [volcanoRuleSkill, setVolcanoRuleSkill] = useState('');
+  const [volcanoRuleFileName, setVolcanoRuleFileName] = useState('');
+
+  const handleVolcanoRuleUpload = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setVolcanoRuleSkill(e.target.result);
+      setVolcanoRuleFileName(file.name);
+      message.success(`已加载规则 Skill: ${file.name}`);
+    };
+    reader.readAsText(file);
+    return false;
+  };
+
   // Derived
   const selectedSkill   = skills.find((s) => s.id === selectedSkillId) || null;
   const versions        = selectedSkill?.versions || [];
@@ -132,9 +147,11 @@ export default function SkillEvaluatorModule() {
           skill_id:      selectedSkillId,
           skill_version: versions[selectedVersionIndex]?.description || `v${selectedVersionIndex + 1}`,
           skill_content: skillContent,
+          skill_name:    selectedSkill?.name || '',
           test_cases:    parsedCases,
           model_config:  selectedModel,
           skill_category: selectedSkill?.category || null,
+          volcano_rule_skill: volcanoRuleSkill || null,
         }),
       });
       const data = await res.json();
@@ -331,6 +348,26 @@ export default function SkillEvaluatorModule() {
 
       <div style={S.divider} />
 
+      {/* 5. 火山规则 Skill (optional) */}
+      <div style={{ marginBottom: 14 }}>
+        <span style={S.label}>5. 火山规则 Skill（可选）</span>
+        <Upload accept=".md,.txt,.json" showUploadList={false} beforeUpload={handleVolcanoRuleUpload}>
+          <Button style={S.btnOutline}>上传规则 Skill 文件</Button>
+        </Upload>
+        {volcanoRuleFileName && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+            <span style={{ fontSize: 11, color: '#059669' }}>已加载: {volcanoRuleFileName} ({volcanoRuleSkill.length} 字符)</span>
+            <span
+              style={{ fontSize: 11, color: '#9ca3af', cursor: 'pointer', textDecoration: 'underline' }}
+              onClick={() => { setVolcanoRuleSkill(''); setVolcanoRuleFileName(''); message.info('已清除规则 Skill'); }}
+            >清除</span>
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>上传后，火山评估将依据规则文件检查待评估 Skill 的合规性</div>
+      </div>
+
+      <div style={S.divider} />
+
       {/* Test button */}
       <Button
         style={{
@@ -466,6 +503,58 @@ export default function SkillEvaluatorModule() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Volcano evaluation dimensions */}
+        {results.volcano_dimensional_scores && Object.keys(results.volcano_dimensional_scores).length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>
+                火山评估{results.volcano_score != null && <span style={{ fontSize: 12, fontWeight: 400, color: '#6b7280', marginLeft: 8 }}>综合 {results.volcano_score}/100</span>}
+              </div>
+              {results.volcano_compliance_summary && (
+                <Tag style={{ fontSize: 10, margin: 0 }}>{results.volcano_compliance_summary}</Tag>
+              )}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+              {Object.entries(results.volcano_dimensional_scores).map(([key, entry]) => {
+                const score = typeof entry === 'object' ? entry?.score : entry;
+                const comment = typeof entry === 'object' ? entry?.comment : null;
+                const issues = typeof entry === 'object' ? entry?.issues : null;
+                return (
+                  <Tooltip key={key} title={issues?.length ? issues.join('; ') : comment || ''} placement="top">
+                    <div style={{ ...S.card, padding: 14, textAlign: 'center', cursor: issues?.length ? 'help' : 'default' }}>
+                      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{key}</div>
+                      <div style={{ fontSize: 26, fontWeight: 800, color: score >= 4 ? '#059669' : score >= 3 ? '#d97706' : '#dc2626', lineHeight: 1 }}>{score ?? '—'}</div>
+                      <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>/ 5 分</div>
+                      {comment && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, textAlign: 'left', lineHeight: 1.4 }}>{comment}</div>}
+                    </div>
+                  </Tooltip>
+                );
+              })}
+            </div>
+            {/* Volcano fix suggestions */}
+            {results.volcano_fix_suggestions?.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>合规修复建议</div>
+                {results.volcano_fix_suggestions.map((fix, i) => (
+                  <div key={i} style={{ ...S.card, padding: 10, marginBottom: 6 }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
+                        background: fix.priority === '高' ? '#fef2f2' : fix.priority === '中' ? '#fff7ed' : '#f9fafb',
+                        color: fix.priority === '高' ? '#b91c1c' : fix.priority === '中' ? '#92400e' : '#6b7280',
+                        border: `1px solid ${fix.priority === '高' ? '#fecaca' : fix.priority === '中' ? '#fed7aa' : '#e5e7eb'}`,
+                      }}>{fix.priority}优先</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{fix.dimension}</span>
+                    </div>
+                    {fix.issue && <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>{fix.issue}</div>}
+                    {fix.fix && <div style={{ fontSize: 11, color: '#374151' }}>{fix.fix}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

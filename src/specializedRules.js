@@ -8,7 +8,19 @@ export const SKILL_CATEGORIES = [
   { id: 'code-generation', label: '代码生成类', description: '组件代码、前端页面生成等' },
   { id: 'data-collection', label: '数据采集类', description: '设计数据、用户行为、业务数据采集' },
   { id: 'competitor-research', label: '竞品调研类', description: '竞品设计、功能、行业趋势调研' },
+  { id: 'design-spec', label: '设计规范类', description: '设计规范/Design Token/组件库约束文档生成', previewType: 'markdown' },
+  { id: 'figma-gen', label: 'Figma 生成类', description: '根据需求生成 Figma 节点 JSON，可在平台内预览', previewType: 'figma' },
+  { id: 'agent-page', label: 'Agent 页面生成类', description: '生成 HTML/JSX/Vue 代码，用于 agent 页面', previewType: 'code' },
 ];
+
+/**
+ * Get preview type for a skill category — used by DesignPreview component
+ * Returns: 'markdown' | 'figma' | 'code' | null
+ */
+export function getPreviewType(categoryId) {
+  const cat = SKILL_CATEGORIES.find((c) => c.id === categoryId);
+  return cat?.previewType || null;
+}
 
 export const SPECIALIZED_RULES = {
   'text-generation': {
@@ -200,6 +212,183 @@ export const SPECIALIZED_RULES = {
     ],
   },
 
+  'design-spec': {
+    name: '设计规范类',
+    weight: 0.4,
+    dimensions: [
+      {
+        id: 'coverage',
+        name: '规范覆盖度',
+        weight: 10,
+        description: '是否覆盖色彩/字体/间距/组件/交互等关键章节',
+        rubric: {
+          5: '覆盖所有核心章节，无遗漏',
+          4: '覆盖主要章节，仅少量次要章节缺失',
+          3: '覆盖基本章节，有部分遗漏',
+          2: '关键章节缺失较多',
+          1: '章节覆盖严重不足',
+        },
+      },
+      {
+        id: 'term-consistency',
+        name: '术语一致性',
+        weight: 10,
+        description: '术语与团队 design token / 组件库命名对齐',
+        rubric: {
+          5: '术语完全一致，命名对齐',
+          4: '术语基本一致，仅少量偏离',
+          3: '术语存在部分不一致',
+          2: '术语多处混用',
+          1: '术语混乱、命名不统一',
+        },
+      },
+      {
+        id: 'executability',
+        name: '可执行性',
+        weight: 10,
+        description: '约束是否具体可执行，避免模糊描述',
+        rubric: {
+          5: '所有约束都有具体数值或明确规则',
+          4: '绝大多数约束具体',
+          3: '部分约束具体，部分模糊',
+          2: '多数约束模糊，难以落地',
+          1: '大量"合理""适当"等无法执行的表述',
+        },
+      },
+      {
+        id: 'deviation',
+        name: '与基准规范偏离度',
+        weight: 10,
+        description: '与上传的基准规范 skill / 团队规范对齐程度',
+        rubric: {
+          5: '与基准完全对齐',
+          4: '仅少量细节偏离',
+          3: '主要规则对齐，细节有差异',
+          2: '多处偏离',
+          1: '严重偏离基准',
+        },
+      },
+    ],
+  },
+
+  'figma-gen': {
+    name: 'Figma 生成类',
+    weight: 0.4,
+    dimensions: [
+      {
+        id: 'structure-validity',
+        name: '结构合法性',
+        weight: 10,
+        description: 'JSON 是否合法，Node 类型/必填字段是否完整',
+        rubric: {
+          5: 'JSON 完全合法，所有 Node 字段正确',
+          4: 'JSON 合法，个别字段缺失',
+          3: '基本合法，有少量字段问题',
+          2: '结构问题较多',
+          1: '无法解析或结构严重错误',
+        },
+      },
+      {
+        id: 'token-compliance',
+        name: 'Design Token 合规',
+        weight: 10,
+        description: '颜色/字号/圆角是否引用 token 而非硬编码',
+        rubric: {
+          5: '100% 使用 token，无硬编码',
+          4: '大部分使用 token',
+          3: '部分使用 token，部分硬编码',
+          2: '多数硬编码',
+          1: '全部硬编码，未引用 token',
+        },
+      },
+      {
+        id: 'hierarchy-naming',
+        name: '层级与命名',
+        weight: 10,
+        description: 'Frame 嵌套合理，图层命名符合规范',
+        rubric: {
+          5: '层级清晰，命名完全符合规范',
+          4: '层级清晰，命名基本符合',
+          3: '层级和命名基本合理',
+          2: '层级或命名有较多问题',
+          1: '层级混乱、命名随意',
+        },
+      },
+      {
+        id: 'requirement-alignment',
+        name: '需求对齐度',
+        weight: 10,
+        description: '生成结果是否匹配用户输入的语义',
+        rubric: {
+          5: '完全还原需求，含细节',
+          4: '还原主要需求',
+          3: '基本还原',
+          2: '还原度不足',
+          1: '与需求偏离严重',
+        },
+      },
+    ],
+  },
+
+  'agent-page': {
+    name: 'Agent 页面生成类',
+    weight: 0.4,
+    dimensions: [
+      {
+        id: 'runability',
+        name: '代码可运行性',
+        weight: 10,
+        description: 'HTML/JSX/Vue 代码语法合法，可直接渲染',
+        rubric: {
+          5: '语法完全合法，直接可运行',
+          4: '语法合法，无致命错误',
+          3: '有轻微语法问题',
+          2: '有多处语法错误',
+          1: '无法运行',
+        },
+      },
+      {
+        id: 'token-usage',
+        name: 'Design Token 使用',
+        weight: 10,
+        description: '引用规范的 CSS 变量/class，无硬编码',
+        rubric: {
+          5: '全部使用规范 token/class',
+          4: '大部分使用 token',
+          3: '混用 token 与硬编码',
+          2: '多数硬编码',
+          1: '全部硬编码',
+        },
+      },
+      {
+        id: 'accessibility',
+        name: '可访问性基础',
+        weight: 10,
+        description: 'alt/aria-*/语义标签/对比度',
+        rubric: {
+          5: '完全符合 a11y 基础要求',
+          4: '符合主要 a11y 要求',
+          3: '有部分 a11y 考虑',
+          2: 'a11y 考虑不足',
+          1: '完全未考虑 a11y',
+        },
+      },
+      {
+        id: 'requirement-fidelity',
+        name: '需求还原度',
+        weight: 10,
+        description: '准确实现需求描述的交互和布局',
+        rubric: {
+          5: '完全还原，含交互细节',
+          4: '还原主要需求和布局',
+          3: '基本还原',
+          2: '还原度不足',
+          1: '与需求偏离严重',
+        },
+      },
+    ],
+  },
+
   'competitor-research': {
     name: '竞品调研类',
     weight: 0.4,
@@ -384,6 +573,84 @@ export function generateTestCaseTemplate(categoryId) {
         priority: '高',
         input: '包含敏感信息的采集需求',
         expected_output: '无敏感信息泄露，完全合规',
+      },
+    ],
+    'design-spec': [
+      {
+        id: '1',
+        name: '按钮组件规范生成',
+        type: '正常场景',
+        priority: '高',
+        input: '为 Primary Button 生成完整的设计规范（尺寸、颜色、圆角、阴影、交互态）',
+        expected_output: '覆盖 size/color/radius/shadow/hover/active/disabled 等全部要素，使用规范 token',
+      },
+      {
+        id: '2',
+        name: '色彩规范对齐',
+        type: '专业场景',
+        priority: '高',
+        input: '基于基准 token 生成中性色与品牌色规范',
+        expected_output: '所有色值引用 token，无硬编码，符合基准命名规则',
+      },
+      {
+        id: '3',
+        name: '间距规范约束',
+        type: '边界情况',
+        priority: '中',
+        input: '生成组件内边距与外边距的规范约束',
+        expected_output: '使用 4 的倍数基线系统，提供具体数值而非模糊描述',
+      },
+    ],
+    'figma-gen': [
+      {
+        id: '1',
+        name: '登录卡片生成',
+        type: '正常场景',
+        priority: '高',
+        input: '生成一个居中的登录卡片 Figma JSON，含标题、输入框、按钮',
+        expected_output: '合法的 Figma JSON，包含 FRAME/TEXT/RECTANGLE/INSTANCE，使用 Auto Layout',
+      },
+      {
+        id: '2',
+        name: '列表页生成',
+        type: '专业场景',
+        priority: '高',
+        input: '生成一个含表头、分页、多行数据的列表页 Figma JSON',
+        expected_output: '层级清晰，Frame 嵌套合理，命名符合 page/section/component 格式',
+      },
+      {
+        id: '3',
+        name: '深浅色模式',
+        type: '边界情况',
+        priority: '中',
+        input: '生成支持深浅色切换的设置页 Figma JSON',
+        expected_output: '颜色全部引用 token 变量，切换 mode 时结构不变',
+      },
+    ],
+    'agent-page': [
+      {
+        id: '1',
+        name: '对话气泡组件',
+        type: '正常场景',
+        priority: '高',
+        input: '生成一个 React 对话气泡组件（用户消息 + AI 消息）',
+        expected_output: '语法合法的 JSX，使用团队 token class，含 role 区分样式',
+      },
+      {
+        id: '2',
+        name: '配置面板',
+        type: '专业场景',
+        priority: '高',
+        input: '生成一个含表单、开关、下拉的 Agent 设置面板 HTML',
+        expected_output: 'HTML 合法，使用语义标签，包含 aria-label，响应式布局',
+      },
+      {
+        id: '3',
+        name: '空态与加载态',
+        type: '边界情况',
+        priority: '中',
+        input: '生成 Agent 页面的空态、加载态、错误态三种视图',
+        expected_output: '三种状态切换明确，视觉一致，使用规范 token',
       },
     ],
     'competitor-research': [

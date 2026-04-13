@@ -1291,6 +1291,24 @@ function buildSpecializedPrompt(categoryId, testResults, skillContent) {
 - 信息准确性：准确率100%、信息最新
 - 分析深度：有竞品对比、设计建议
 - 格式规范性：结构清晰、可直接参考`,
+
+    'design-spec': `你是一名设计规范专项评估专家。请基于以下4个维度对该技能的输出进行评分：
+- 规范覆盖度：是否覆盖色彩/字体/间距/组件/交互等关键章节
+- 术语一致性：术语与团队 design token / 组件库命名是否对齐
+- 可执行性：约束是否足够具体（避免"合理""适当"等模糊词），需要有明确数值或规则
+- 与基准规范偏离度：与上传的基准规范 skill 做文本比对，偏离程度`,
+
+    'figma-gen': `你是一名 Figma 设计生成专项评估专家。请基于以下4个维度对该技能的输出进行评分：
+- 结构合法性：输出是否为合法 JSON，且符合 Figma Node 结构（FRAME/TEXT/RECT 等类型正确、必填字段齐全）
+- Design Token 合规：颜色/字号/圆角是否引用 token 而非硬编码
+- 层级与命名：Frame 嵌套是否合理、图层命名是否符合规范（如 page/section/component 格式）
+- 需求对齐度：生成结果是否匹配用户输入的语义`,
+
+    'agent-page': `你是一名 Agent 页面生成专项评估专家。请基于以下4个维度对该技能的输出进行评分：
+- 代码可运行性：HTML/JSX/Vue 代码语法是否合法，可直接渲染无报错
+- Design Token 使用：是否引用规范的 CSS 变量/class（而非内联硬编码值）
+- 可访问性基础：是否包含 alt、aria-*、语义标签，颜色对比度是否达标
+- 需求还原度：是否准确实现需求描述的交互和布局`,
   };
 
   const categoryPrompt = categoryPrompts[categoryId] || '';
@@ -1337,6 +1355,70 @@ ${resultsText}
 }
 
 /**
+ * Build Volcano evaluation prompt — checks function reference compliance + naming compliance
+ * If ruleSkillContent is provided, evaluates against that rule skill
+ */
+function buildVolcanoPrompt(skillContent, skillName, ruleSkillContent) {
+  const ruleSection = ruleSkillContent
+    ? `\n## 规则 Skill（用户上传的火山规范文件）\n\`\`\`\n${ruleSkillContent}\n\`\`\`\n\n请同时依据以上规则 Skill 中定义的规范进行检查。`
+    : '';
+
+  return `你是一名火山平台规范审查专家。请对以下技能进行火山平台合规性评估。
+
+## 待评估的技能名称
+${skillName || '未提供'}
+
+## 待评估的技能定义
+\`\`\`
+${skillContent}
+\`\`\`
+${ruleSection}
+
+## 检查维度（共4个维度，每项 1-5 分）
+
+### 1. 函数引用规范
+检查技能中是否有函数/工具引用，引用格式是否规范：
+- 是否使用标准的 function_call / tool_use 格式
+- 参数定义是否完整（name, description, parameters, required）
+- 引用的函数名是否符合命名规范（小写+下划线，无特殊字符）
+- 是否有未定义/不存在的函数引用
+
+### 2. Skill 命名规范
+检查技能的 name / uniqueName 是否符合火山平台规范：
+- 使用小写字母+连字符（kebab-case）或小写字母+下划线（snake_case）
+- 长度合理（3-50字符），具有描述性
+- 无中文、无空格、无特殊字符
+- 前缀/后缀是否符合团队约定
+
+### 3. 元信息完整性
+- frontmatter 是否包含 name、description、version 等必需字段
+- description 是否清晰且准确
+- 是否声明了 input/output schema
+
+### 4. 规则 Skill 合规度
+${ruleSkillContent ? '依据上传的规则 Skill 中的自定义规范进行检查，逐条对照。' : '未提供规则 Skill，本维度默认给 3 分。'}
+
+请严格返回以下 JSON 格式（不要有 markdown 包裹）：
+{
+  "dimensional_scores": {
+    "函数引用规范": { "score": 4, "comment": "评分说明", "issues": ["具体问题1"] },
+    "Skill命名规范": { "score": 3, "comment": "评分说明", "issues": [] },
+    "元信息完整性": { "score": 4, "comment": "评分说明", "issues": [] },
+    "规则Skill合规度": { "score": 3, "comment": "评分说明", "issues": [] }
+  },
+  "compliance_summary": "一句话总结合规情况",
+  "fix_suggestions": [
+    {
+      "dimension": "维度名",
+      "priority": "高/中/低",
+      "issue": "问题描述",
+      "fix": "修复方案"
+    }
+  ]
+}`;
+}
+
+/**
  * Merge generic and specialized optimization suggestions
  */
 function mergeOptimizationSuggestions(generic = [], specialized = []) {
@@ -1368,7 +1450,7 @@ function mergeOptimizationSuggestions(generic = [], specialized = []) {
  */
 app.post('/api/evaluate-skill', async (req, res) => {
   try {
-    const { skill_content, test_cases, model_config, skill_category } = req.body;
+    const { skill_content, test_cases, model_config, skill_category, volcano_rule_skill, skill_name } = req.body;
 
     if (!skill_content) return res.status(400).json({ error: '缺少 skill_content 参数' });
 
@@ -1650,6 +1732,45 @@ ${resultsForJudge}
       }
     }
 
+    // ── Phase 4: Volcano Evaluation (platform compliance) ──────────────
+    let volcanoDimensionalScores = null;
+    let volcanoComplianceSummary = null;
+    let volcanoFixSuggestions = [];
+    let volcanoScore = null;
+
+    {
+      console.log(`[evaluate-skill] 开始 Phase 4 火山评估...`);
+      const volcanoPrompt = buildVolcanoPrompt(
+        skill_content,
+        skill_name || '',
+        volcano_rule_skill || null
+      );
+
+      try {
+        const volcanoResponseText = await callLLMForEval(model_config || null, volcanoPrompt, 3000);
+        try {
+          const jsonMatch = volcanoResponseText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const volcanoResult = JSON.parse(jsonMatch[0]);
+            volcanoDimensionalScores = volcanoResult.dimensional_scores || {};
+            volcanoComplianceSummary = volcanoResult.compliance_summary || '';
+            volcanoFixSuggestions = volcanoResult.fix_suggestions || [];
+
+            const scores = Object.values(volcanoDimensionalScores).map((d) => {
+              const score = typeof d === 'object' ? d?.score : d;
+              return (score ?? 3) * 20;
+            });
+            volcanoScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+            console.log(`[evaluate-skill] Phase 4 完成，火山评分: ${volcanoScore}`);
+          }
+        } catch (parseErr) {
+          console.error('[evaluate-skill] 火山评估结果解析失败，忽略', parseErr.message);
+        }
+      } catch (llmErr) {
+        console.error('[evaluate-skill] 火山评估 LLM 调用失败，忽略', llmErr.message);
+      }
+    }
+
     // ── Server-side weighted score calculation (ensures consistency) ──────
     const dimScores = evaluationResult.dimensional_scores || {};
     const mapTo100 = (s) => (typeof s === 'number' ? s : (s?.score ?? 3)) * 20;
@@ -1680,6 +1801,7 @@ ${resultsForJudge}
         overall_score: computedOverall,
         generic_score: genericScore,
         specialized_score: specializedScore,
+        volcano_score: volcanoScore,
         quality_score: Math.round(qualityDim),
         functionality_score: Math.round(funcDim),
         safety_score: Math.round(safetyDim),
@@ -1699,6 +1821,11 @@ ${resultsForJudge}
       specialized_dimensional_scores: specializedDimensionalScores || null,
       specialized_weakness_analysis: specializedWeakness || null,
       specialized_suggestions: specializedSuggestions || [],
+      // Volcano evaluation results
+      volcano_score: volcanoScore,
+      volcano_dimensional_scores: volcanoDimensionalScores || null,
+      volcano_compliance_summary: volcanoComplianceSummary || null,
+      volcano_fix_suggestions: volcanoFixSuggestions || [],
       // Include execution log for export
       execution_log: executionResults.map((r) => ({
         id: r.id, name: r.name, input: r.input,

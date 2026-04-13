@@ -473,9 +473,102 @@ const ConfigCenter = () => {
 
   /* ----- Main Render ----- */
 
+  /* ----- Preview Environment Config ----- */
+  const [previewTokenCssUrl, setPreviewTokenCssUrl] = useState(capabilities?.previewEnv?.tokenCssUrl || '');
+  const [previewComponentJsUrl, setPreviewComponentJsUrl] = useState(capabilities?.previewEnv?.componentJsUrl || '');
+  const [previewFontCssUrl, setPreviewFontCssUrl] = useState(capabilities?.previewEnv?.fontCssUrl || '');
+  const [previewHtmlTemplate, setPreviewHtmlTemplate] = useState(capabilities?.previewEnv?.htmlTemplate || '');
+  const [figmaToken, setFigmaToken] = useState(capabilities?.figma?.personalAccessToken || '');
+
+  const handleSavePreviewEnv = () => {
+    updateCapability('previewEnv', {
+      tokenCssUrl: previewTokenCssUrl.trim(),
+      componentJsUrl: previewComponentJsUrl.trim(),
+      fontCssUrl: previewFontCssUrl.trim(),
+      htmlTemplate: previewHtmlTemplate.trim(),
+    });
+    message.success('预览环境配置已保存');
+  };
+
+  const handleSaveFigmaToken = () => {
+    updateCapability('figma', { personalAccessToken: figmaToken.trim() });
+    message.success('Figma Token 已保存');
+  };
+
+  const renderPreviewEnvSection = () => (
+    <div>
+      {sectionTitle('预览环境配置', '配置设计类 Skill 预览所需的 CDN 资源和模板')}
+
+      {/* Design Token / Component Library */}
+      <div style={capCard}>
+        <div style={capLabel}>Design Token & 组件库</div>
+        <div style={capDesc}>配置团队的 Design Token CSS 和组件库 JS，预览页面将自动注入这些资源</div>
+
+        <div style={{ marginBottom: 12 }}>
+          <span style={fieldLabel}>Design Token CSS URL</span>
+          <Input
+            placeholder="https://cdn.yourteam.com/design-tokens.css"
+            value={previewTokenCssUrl}
+            onChange={(e) => setPreviewTokenCssUrl(e.target.value)}
+            size="small"
+          />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <span style={fieldLabel}>组件库 JS URL</span>
+          <Input
+            placeholder="https://cdn.yourteam.com/components.umd.js"
+            value={previewComponentJsUrl}
+            onChange={(e) => setPreviewComponentJsUrl(e.target.value)}
+            size="small"
+          />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <span style={fieldLabel}>Web 字体 CSS URL</span>
+          <Input
+            placeholder="https://fonts.yourteam.com/webfont.css"
+            value={previewFontCssUrl}
+            onChange={(e) => setPreviewFontCssUrl(e.target.value)}
+            size="small"
+          />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <span style={fieldLabel}>基础 HTML 模板（可选，用 {'{{OUTPUT}}'} 作为占位符）</span>
+          <Input.TextArea
+            placeholder={'<html><head>...</head><body>{{OUTPUT}}</body></html>'}
+            value={previewHtmlTemplate}
+            onChange={(e) => setPreviewHtmlTemplate(e.target.value)}
+            rows={3}
+            style={{ fontSize: 12, fontFamily: 'monospace' }}
+          />
+        </div>
+        <Button type="primary" size="small" onClick={handleSavePreviewEnv}>保存预览环境配置</Button>
+      </div>
+
+      {/* Figma Integration */}
+      <div style={capCard}>
+        <div style={capLabel}>Figma 集成</div>
+        <div style={capDesc}>配置 Figma Personal Access Token，用于精准预览 Figma 生成类 Skill 的输出（第二期功能）</div>
+
+        <div style={{ marginBottom: 12 }}>
+          <span style={fieldLabel}>Figma Personal Access Token</span>
+          <Input.Password
+            placeholder="figd_xxxxxxxxxxxxxxxx"
+            value={figmaToken}
+            onChange={(e) => setFigmaToken(e.target.value)}
+            size="small"
+          />
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>获取方式：Figma → Settings → Personal access tokens</div>
+        </div>
+        <Button type="primary" size="small" onClick={handleSaveFigmaToken}>保存 Figma Token</Button>
+        <Tag style={{ marginLeft: 8, fontSize: 10 }}>第二期</Tag>
+      </div>
+    </div>
+  );
+
   const tabs = [
     { key: 'models', label: '模型配置' },
     { key: 'capabilities', label: '底层能力' },
+    { key: 'preview-env', label: '预览环境' },
   ];
 
   return (
@@ -501,6 +594,7 @@ const ConfigCenter = () => {
 
       {activeSection === 'models' && renderModelSection()}
       {activeSection === 'capabilities' && renderCapabilitiesSection()}
+      {activeSection === 'preview-env' && renderPreviewEnvSection()}
     </div>
   );
 };

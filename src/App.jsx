@@ -16,7 +16,7 @@ const App = () => {
 
   const menuItems = [
     { key: 'skill-evaluator', label: '技能评估' },
-    { key: 'skill-editor', label: '技能编辑' },
+    { key: 'skill-editor', label: '技能测试' },
     { key: 'skill-library', label: '技能库' },
     { key: 'config-center', label: '配置中心' },
   ];

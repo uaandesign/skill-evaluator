@@ -6,101 +6,201 @@ import { persist } from 'zustand/middleware';
  * Shared across ConfigCenter and all consuming modules.
  */
 export const PROVIDERS = [
-  {
-    key: 'openai', name: 'OpenAI',
-    defaultBaseUrl: 'https://api.openai.com/v1',
-    models: [
-      // GPT-4o 系列（稳定可用）
-      { id: 'gpt-4o', name: 'GPT-4o' },
-      { id: 'gpt-4o-mini', name: 'GPT-4o mini' },
-      // GPT-4.1 系列
-      { id: 'gpt-4.1', name: 'GPT-4.1' },
-      { id: 'gpt-4.1-mini', name: 'GPT-4.1 mini' },
-      { id: 'gpt-4.1-nano', name: 'GPT-4.1 nano' },
-      // o 系列推理模型
-      { id: 'o3', name: 'o3 (推理)' },
-      { id: 'o3-mini', name: 'o3-mini (推理)' },
-      { id: 'o4-mini', name: 'o4-mini (推理)' },
-      { id: 'o1', name: 'o1 (推理)' },
-      { id: 'o1-mini', name: 'o1-mini (推理)' },
-    ],
-  },
+  // ─── Anthropic ────────────────────────────────────────────────
   {
     key: 'anthropic', name: 'Anthropic (Claude)',
     defaultBaseUrl: 'https://api.anthropic.com',
     models: [
-      // Claude 4.6 系列（最新）
-      { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },
-      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
-      // Claude 4.5 系列
-      { id: 'claude-opus-4-5-20251101', name: 'Claude Opus 4.5' },
-      { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5' },
-      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
-      // Claude 4 系列
-      { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
-      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
-      // Claude 3.x 系列（旧版稳定）
-      { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet' },
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
+      { id: 'claude-opus-4-6',          name: 'Claude Opus 4.6 ✦ 最新' },
+      { id: 'claude-sonnet-4-6',        name: 'Claude Sonnet 4.6 ✦ 最新' },
+      { id: 'claude-haiku-4-5-20251001',name: 'Claude Haiku 4.5' },
+      { id: 'claude-3-opus-20240229',   name: 'Claude 3 Opus' },
+      { id: 'claude-3-5-sonnet-20241022',name: 'Claude 3.5 Sonnet' },
+      { id: 'claude-3-haiku-20240307',  name: 'Claude 3 Haiku' },
     ],
   },
+
+  // ─── OpenAI ───────────────────────────────────────────────────
   {
-    key: 'doubao', name: 'Doubao (字节跳动)',
-    defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    key: 'openai', name: 'OpenAI',
+    defaultBaseUrl: 'https://api.openai.com/v1',
     models: [
-      // 豆包 Seed 2.0 系列（最新）
-      { id: 'doubao-seed-2-0-pro-260215', name: 'Seed 2.0 Pro (推理)' },
-      // 豆包 1.5 系列（稳定可用）
-      { id: 'doubao-1-5-pro-256k', name: '豆包 1.5 Pro 256K' },
-      { id: 'doubao-1-5-pro-32k', name: '豆包 1.5 Pro 32K' },
-      { id: 'doubao-1-5-lite-32k', name: '豆包 1.5 Lite 32K' },
-      // 豆包经典系列（兼容旧版）
-      { id: 'doubao-pro-256k', name: '豆包 Pro 256K' },
-      { id: 'doubao-pro-32k', name: '豆包 Pro 32K' },
-      { id: 'doubao-lite-32k', name: '豆包 Lite 32K' },
+      { id: 'gpt-5.4',         name: 'GPT-5.4' },
+      { id: 'gpt-5.4-pro',     name: 'GPT-5.4 Pro' },
+      { id: 'gpt-5.2',         name: 'GPT-5.2' },
+      { id: 'gpt-5.1-codex',   name: 'GPT-5.1 Codex' },
+      { id: 'gpt-4o',          name: 'GPT-4o' },
+      { id: 'gpt-4o-mini',     name: 'GPT-4o mini' },
+      { id: 'o1',              name: 'o1 (推理)' },
+      { id: 'o3',              name: 'o3 (推理)' },
+      { id: 'gpt-4',           name: 'GPT-4' },
+      { id: 'gpt-3.5-turbo',   name: 'GPT-3.5 Turbo' },
     ],
   },
-  {
-    key: 'qwen', name: 'Qwen (通义千问)',
-    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    models: [
-      // Qwen 3 系列（最新）
-      { id: 'qwen-max', name: 'Qwen Max' },
-      { id: 'qwen-max-latest', name: 'Qwen Max (最新快照)' },
-      { id: 'qwen-plus', name: 'Qwen Plus' },
-      { id: 'qwen-plus-latest', name: 'Qwen Plus (最新快照)' },
-      { id: 'qwen-turbo', name: 'Qwen Turbo' },
-      { id: 'qwen-turbo-latest', name: 'Qwen Turbo (最新快照)' },
-      { id: 'qwen-long', name: 'Qwen Long (长文本)' },
-      // 推理模型
-      { id: 'qwq-plus', name: 'QwQ Plus (推理)' },
-      // 代码模型
-      { id: 'qwen-coder-plus', name: 'Qwen Coder Plus' },
-      { id: 'qwen-coder-turbo', name: 'Qwen Coder Turbo' },
-    ],
-  },
+
+  // ─── Google ───────────────────────────────────────────────────
   {
     key: 'gemini', name: 'Google Gemini',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     models: [
-      // Gemini 2.5 系列（当前推荐）
-      { id: 'gemini-2.5-pro-preview-05-06', name: 'Gemini 2.5 Pro' },
-      { id: 'gemini-2.5-flash-preview-04-17', name: 'Gemini 2.5 Flash' },
-      // Gemini 2.0 系列（稳定）
-      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-      { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite' },
-      // Gemini 1.5 系列（旧版稳定）
-      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
-      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+      { id: 'gemini-3-pro',            name: 'Gemini 3 Pro' },
+      { id: 'gemini-3-flash',          name: 'Gemini 3 Flash' },
+      { id: 'gemini-3-pro-preview',    name: 'Gemini 3 Pro Preview' },
+      { id: 'gemini-pro',              name: 'Gemini Pro' },
+      { id: 'gemini-ultra',            name: 'Gemini Ultra' },
     ],
   },
+
+  // ─── xAI ──────────────────────────────────────────────────────
+  {
+    key: 'xai', name: 'xAI (Grok)',
+    defaultBaseUrl: 'https://api.x.ai/v1',
+    models: [
+      { id: 'grok-4.1',           name: 'Grok 4.1' },
+      { id: 'grok-4.1-mini',      name: 'Grok 4.1 mini' },
+      { id: 'grok-code-fast-1',   name: 'Grok Code Fast 1' },
+    ],
+  },
+
+  // ─── Mistral ──────────────────────────────────────────────────
+  {
+    key: 'mistral', name: 'Mistral AI',
+    defaultBaseUrl: 'https://api.mistral.ai/v1',
+    models: [
+      { id: 'mistral-large-latest', name: 'Mistral Large (最新)' },
+      { id: 'mistral-large-2411',   name: 'Mistral Large 2411' },
+      { id: 'codestral-latest',     name: 'Codestral (最新)' },
+    ],
+  },
+
+  // ─── NVIDIA NIM ───────────────────────────────────────────────
+  {
+    key: 'nvidia', name: 'NVIDIA NIM',
+    defaultBaseUrl: 'https://integrate.api.nvidia.com/v1',
+    models: [
+      { id: 'meta/llama-3.1-405b-instruct',            name: 'Llama 3.1 405B Instruct' },
+      { id: 'meta/llama-3.3-70b-instruct',             name: 'Llama 3.3 70B Instruct' },
+      { id: 'nvidia/llama-3.1-nemotron-70b-instruct',  name: 'Nemotron 70B Instruct' },
+      { id: 'mistralai/mistral-large',                 name: 'Mistral Large (NIM)' },
+      { id: 'google/gemma-2-27b-it',                   name: 'Gemma 2 27B IT' },
+    ],
+  },
+
+  // ─── Groq ─────────────────────────────────────────────────────
+  {
+    key: 'groq', name: 'Groq',
+    defaultBaseUrl: 'https://api.groq.com/openai/v1',
+    models: [
+      { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile' },
+      { id: 'llama-3.3-70b-specdec',   name: 'Llama 3.3 70B SpecDec' },
+      { id: 'qwen-qwq-32b',            name: 'Qwen QwQ 32B (推理)' },
+      { id: 'llama-3.1-8b-instant',    name: 'Llama 3.1 8B Instant' },
+    ],
+  },
+
+  // ─── Amazon Bedrock ───────────────────────────────────────────
+  {
+    key: 'bedrock', name: 'Amazon Bedrock',
+    defaultBaseUrl: 'https://bedrock-runtime.us-east-1.amazonaws.com/v1',
+    models: [
+      { id: 'anthropic.claude-opus-4-6',          name: 'Claude Opus 4.6 (Bedrock)' },
+      { id: 'meta.llama3-70b-instruct-v1:0',       name: 'Llama 3 70B (Bedrock)' },
+      { id: 'meta.llama3-8b-instruct-v1:0',        name: 'Llama 3 8B (Bedrock)' },
+      { id: 'amazon.titan-text-premier-v1:0',      name: 'Titan Text Premier' },
+      { id: 'amazon.titan-text-express-v1',        name: 'Titan Text Express' },
+    ],
+  },
+
+  // ─── Venice AI ────────────────────────────────────────────────
+  {
+    key: 'venice', name: 'Venice AI',
+    defaultBaseUrl: 'https://api.venice.ai/api/v1',
+    models: [
+      { id: 'claude-opus-4-5',  name: 'Claude Opus 4.5 (Venice)' },
+      { id: 'llama-3.3-70b',    name: 'Llama 3.3 70B (Venice)' },
+    ],
+  },
+
+  // ─── DeepSeek ─────────────────────────────────────────────────
   {
     key: 'deepseek', name: 'DeepSeek',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
     models: [
-      { id: 'deepseek-chat', name: 'DeepSeek Chat (V3)' },
-      { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner (R1)' },
+      { id: 'deepseek-chat',      name: 'DeepSeek Chat (V3)' },
+      { id: 'deepseek-coder',     name: 'DeepSeek Coder' },
+      { id: 'deepseek-reasoner',  name: 'DeepSeek R1 (推理)' },
+      { id: 'deepseek-v2',        name: 'DeepSeek V2' },
+    ],
+  },
+
+  // ─── Moonshot AI (Kimi) ───────────────────────────────────────
+  {
+    key: 'moonshot', name: 'Moonshot AI (Kimi)',
+    defaultBaseUrl: 'https://api.moonshot.cn/v1',
+    models: [
+      { id: 'kimi-k2-5',          name: 'Kimi K2.5' },
+      { id: 'kimi-k2-thinking',   name: 'Kimi K2 Thinking (推理)' },
+      { id: 'moonshot-v1-128k',   name: 'Moonshot v1 128K' },
+      { id: 'moonshot-v1-32k',    name: 'Moonshot v1 32K' },
+      { id: 'moonshot-v1-8k',     name: 'Moonshot v1 8K' },
+    ],
+  },
+
+  // ─── 智谱 AI (GLM) ────────────────────────────────────────────
+  {
+    key: 'zhipu', name: '智谱 AI (GLM)',
+    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    models: [
+      { id: 'glm-5',          name: 'GLM-5' },
+      { id: 'glm-5-free',     name: 'GLM-5 Free' },
+      { id: 'glm-4.7-VL',     name: 'GLM-4.7 VL (多模态)' },
+      { id: 'glm-4.7-flash',  name: 'GLM-4.7 Flash' },
+      { id: 'glm-4',          name: 'GLM-4' },
+      { id: 'glm-4-air',      name: 'GLM-4 Air' },
+      { id: 'glm-4-9b',       name: 'GLM-4 9B Chat' },
+    ],
+  },
+
+  // ─── MiniMax ──────────────────────────────────────────────────
+  {
+    key: 'minimax', name: 'MiniMax',
+    defaultBaseUrl: 'https://api.minimax.chat/v1',
+    models: [
+      { id: 'MiniMax-M2.5',           name: 'MiniMax M2.5' },
+      { id: 'MiniMax-M2.1',           name: 'MiniMax M2.1' },
+      { id: 'MiniMax-M2.1-lightning', name: 'MiniMax M2.1 Lightning' },
+      { id: 'abab6-chat',             name: 'ABAB6 Chat' },
+    ],
+  },
+
+  // ─── 通义千问 (Qwen) ──────────────────────────────────────────
+  {
+    key: 'qwen', name: 'Qwen (通义千问)',
+    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    models: [
+      { id: 'qwen3.5-72b-instruct',   name: 'Qwen3.5 72B Instruct' },
+      { id: 'qwen3.5-27b-instruct',   name: 'Qwen3.5 27B Instruct' },
+      { id: 'qwen3.5-9b-instruct',    name: 'Qwen3.5 9B Instruct' },
+      { id: 'qwen3.5-7b-instruct',    name: 'Qwen3.5 7B Instruct' },
+      { id: 'qwen3-32b',              name: 'Qwen3 32B' },
+      { id: 'qwen-max',               name: 'Qwen Max' },
+      { id: 'qwen-plus',              name: 'Qwen Plus' },
+      { id: 'qwen-long',              name: 'Qwen Long (长文本)' },
+      { id: 'qwen2.5-72b-instruct',   name: 'Qwen2.5 72B Instruct' },
+      { id: 'qwen2.5-32b-instruct',   name: 'Qwen2.5 32B Instruct' },
+      { id: 'qwen2-57b-a14b-instruct',name: 'Qwen2 MoE 57B' },
+    ],
+  },
+
+  // ─── 字节跳动 / 火山引擎 (Doubao) ────────────────────────────
+  {
+    key: 'doubao', name: '字节跳动 / 火山引擎 (Doubao)',
+    defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    models: [
+      { id: 'doubao-seed-2.0-pro',   name: 'Doubao Seed 2.0 Pro' },
+      { id: 'doubao-seed-2.0-lite',  name: 'Doubao Seed 2.0 Lite' },
+      { id: 'doubao-seed-2.0-mini',  name: 'Doubao Seed 2.0 Mini' },
+      { id: 'doubao-seed-2.0-code',  name: 'Doubao Seed 2.0 Code' },
     ],
   },
 ];

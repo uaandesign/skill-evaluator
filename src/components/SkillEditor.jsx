@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Card,
   Button,
@@ -15,6 +15,7 @@ import {
   Alert,
   Segmented,
   List,
+  Upload,
 } from 'antd';
 import { useStore } from '../store';
 import { detectFormat, validateSkillMd, validateFunctionCall, validatePromptTemplate } from '../utils/skillParser';
@@ -58,6 +59,59 @@ const SkillEditor = () => {
   const [runDuration, setRunDuration] = useState(null);
   const [runModelLabel, setRunModelLabel] = useState('');
   const [outputTab, setOutputTab] = useState('preview'); // 'preview' | 'raw'
+
+  // ── Doc upload state ─────────────────────────────────────────
+  const [docUploading, setDocUploading] = useState(false);
+  const [uploadedDocName, setUploadedDocName] = useState('');
+  const fileInputRef = useRef(null);
+
+  // Read and extract text from uploaded document
+  const handleDocUpload = async (file) => {
+    const maxSize = 20 * 1024 * 1024; // 20 MB
+    if (file.size > maxSize) {
+      message.error('文件超过 20MB 限制');
+      return false;
+    }
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const supported = ['pdf', 'md', 'markdown', 'txt', 'doc', 'docx'];
+    if (!supported.includes(ext)) {
+      message.error(`不支持 .${ext} 格式，请上传 PDF / Markdown / TXT / Word`);
+      return false;
+    }
+
+    setDocUploading(true);
+    setUploadedDocName('');
+
+    try {
+      if (ext === 'txt' || ext === 'md' || ext === 'markdown') {
+        // Read directly in browser
+        const text = await file.text();
+        setUserInput((prev) => (prev ? prev + '\n\n---\n\n' + text : text));
+        setUploadedDocName(file.name);
+        message.success(`已读取「${file.name}」`);
+      } else {
+        // Send to backend for PDF / DOCX extraction
+        const ab = await file.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+        const resp = await fetch('/api/extract-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, data: b64 }),
+        });
+        const result = await resp.json();
+        if (result.error) throw new Error(result.error);
+        const text = result.text || '';
+        setUserInput((prev) => (prev ? prev + '\n\n---\n\n' + text : text));
+        setUploadedDocName(file.name);
+        message.success(`已从「${file.name}」提取 ${result.chars?.toLocaleString() || text.length} 字符`);
+      }
+    } catch (err) {
+      message.error(`文档读取失败：${err.message}`);
+    } finally {
+      setDocUploading(false);
+    }
+    return false; // prevent antd auto upload
+  };
 
   // ── Derived ───────────────────────────────────────────────────
   const selectedSkill = useMemo(
@@ -373,32 +427,13 @@ const SkillEditor = () => {
                   autoSize={{ minRows: 18, maxRows: 30 }}
                 />
 
-                {validation && (
-                  <div style={{ marginTop: 10 }}>
-                    {validation.valid ? (
-                      <Alert
-                        type="success"
-                        message={`校验通过${validation.warnings?.length ? ` · ${validation.warnings.length} 个警告` : ''}`}
-                        showIcon={false}
-                        style={{ padding: '6px 12px', fontSize: 12 }}
-                      />
-                    ) : (
-                      <Alert
-                        type="error"
-                        message={`校验失败 · ${validation.errors?.length || 0} 个错误`}
-                        description={
-                          validation.errors?.length ? (
-                            <div style={{ fontSize: 11 }}>
-                              {validation.errors.slice(0, 3).map((err, i) => (
-                                <div key={i}>· {err.message}</div>
-                              ))}
-                            </div>
-                          ) : null
-                        }
-                        showIcon={false}
-                        style={{ padding: '6px 12px', fontSize: 12 }}
-                      />
-                    )}
+                {/* Validation errors only (not warnings) */}
+                {validation && !validation.valid && validation.errors?.length > 0 && (
+                  <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', fontSize: 12, color: '#b91c1c' }}>
+                    <span style={{ fontWeight: 600 }}>格式错误：</span>
+                    {validation.errors.slice(0, 2).map((e, i) => (
+                      <span key={i}> · {e.message}</span>
+                    ))}
                   </div>
                 )}
               </>
@@ -585,22 +620,46 @@ const SkillEditor = () => {
 
         {/* User input */}
         <div style={{ marginBottom: 16 }}>
-          <Text strong style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 6 }}>
-            2. 输入测试内容
-          </Text>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text strong style={{ fontSize: 12, color: '#374151' }}>
+              2. 输入测试内容
+            </Text>
+            <Upload
+              accept=".pdf,.md,.markdown,.txt,.doc,.docx"
+              beforeUpload={handleDocUpload}
+              showUploadList={false}
+              maxCount={1}
+            >
+              <Button
+                size="small"
+                loading={docUploading}
+                style={{ fontSize: 11 }}
+              >
+                {docUploading ? '解析中…' : '📎 上传文档'}
+              </Button>
+            </Upload>
+          </div>
           <Input.TextArea
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
-            placeholder="输入你想发送给技能的内容..."
+            placeholder="输入测试内容，或点击「上传文档」导入 PDF / Markdown / TXT / Word..."
             rows={6}
-            style={{
-              fontSize: 13,
-              borderRadius: 6,
-            }}
+            style={{ fontSize: 13, borderRadius: 6 }}
           />
-          <Text style={{ fontSize: 11, color: '#9ca3af', display: 'block', marginTop: 4 }}>
-            技能定义将作为 system prompt，此处内容作为 user prompt
-          </Text>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+            <Text style={{ fontSize: 11, color: '#9ca3af' }}>
+              支持直接粘贴文本，或上传 PDF / Markdown / TXT / Word 文档
+            </Text>
+            {uploadedDocName && (
+              <Text style={{ fontSize: 11, color: '#6b7280' }}>
+                📄 {uploadedDocName}
+                <span
+                  style={{ marginLeft: 6, color: '#9ca3af', cursor: 'pointer' }}
+                  onClick={() => { setUploadedDocName(''); setUserInput(''); }}
+                >✕</span>
+              </Text>
+            )}
+          </div>
         </div>
 
         {/* Run button */}

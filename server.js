@@ -178,6 +178,104 @@ function decodePdfString(str) {
 }
 
 /**
+ * Extract text content from DOCX (Word) file buffer.
+ * DOCX is a ZIP archive; we parse it natively using Node.js zlib.
+ */
+async function extractTextFromDocxBuffer(buffer) {
+  const { inflateRaw } = await import('zlib');
+  const { promisify } = await import('util');
+  const inflateRawAsync = promisify(inflateRaw);
+
+  // Parse ZIP central directory
+  let eocdOffset = -1;
+  for (let i = buffer.length - 22; i >= 0; i--) {
+    if (buffer[i] === 0x50 && buffer[i+1] === 0x4B && buffer[i+2] === 0x05 && buffer[i+3] === 0x06) {
+      eocdOffset = i; break;
+    }
+  }
+  if (eocdOffset === -1) throw new Error('不是有效的 ZIP/DOCX 文件');
+
+  const cdEntries = buffer.readUInt16LE(eocdOffset + 8);
+  const cdOffset  = buffer.readUInt32LE(eocdOffset + 16);
+
+  let pos = cdOffset;
+  for (let i = 0; i < cdEntries; i++) {
+    if (buffer.readUInt32LE(pos) !== 0x02014B50) break;
+    const compression    = buffer.readUInt16LE(pos + 10);
+    const compressedSize = buffer.readUInt32LE(pos + 20);
+    const filenameLen    = buffer.readUInt16LE(pos + 28);
+    const extraLen       = buffer.readUInt16LE(pos + 30);
+    const commentLen     = buffer.readUInt16LE(pos + 32);
+    const localOffset    = buffer.readUInt32LE(pos + 42);
+    const filename       = buffer.slice(pos + 46, pos + 46 + filenameLen).toString('utf8');
+
+    if (filename === 'word/document.xml') {
+      const lfnLen   = buffer.readUInt16LE(localOffset + 26);
+      const lextraLen= buffer.readUInt16LE(localOffset + 28);
+      const dataStart= localOffset + 30 + lfnLen + lextraLen;
+      const compData = buffer.slice(dataStart, dataStart + compressedSize);
+
+      let xml;
+      if (compression === 0) {
+        xml = compData.toString('utf8');
+      } else if (compression === 8) {
+        xml = (await inflateRawAsync(compData)).toString('utf8');
+      } else {
+        throw new Error(`不支持的 ZIP 压缩方式: ${compression}`);
+      }
+
+      return xml
+        .replace(/<w:br[^/]*/>/gi, '\n')
+        .replace(/<\/w:p>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&apos;/g, "'").replace(/&quot;/g, '"')
+        .replace(/\n{3,}/g, '\n\n').trim();
+    }
+    pos += 46 + filenameLen + extraLen + commentLen;
+  }
+  throw new Error('DOCX 文件中未找到 word/document.xml');
+}
+
+/**
+ * POST /api/extract-text
+ * Universal document text extractor.
+ * Accepts { filename, data: base64 } and returns { text, chars }.
+ * Supports: .txt .md .markdown .pdf .doc .docx
+ */
+app.post('/api/extract-text', async (req, res) => {
+  try {
+    const { filename = 'file', data } = req.body;
+    if (!data) return res.status(400).json({ error: '缺少 data (base64) 字段' });
+
+    const buffer = Buffer.from(data, 'base64');
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    const MAX_CHARS = 100000;
+    let text = '';
+
+    if (ext === 'txt' || ext === 'md' || ext === 'markdown') {
+      text = buffer.toString('utf-8');
+    } else if (ext === 'pdf') {
+      text = extractTextFromPdfBuffer(buffer);
+      if (!text || text.trim().length < 10) {
+        text = `[PDF「${filename}」无法提取文字，可能是扫描件或图片 PDF]`;
+      }
+    } else if (ext === 'docx' || ext === 'doc') {
+      text = await extractTextFromDocxBuffer(buffer);
+    } else {
+      text = buffer.toString('utf-8');
+    }
+
+    const truncated = text.length > MAX_CHARS;
+    const finalText = truncated ? text.slice(0, MAX_CHARS) + `\n\n[已截断，原文 ${text.length} 字符]` : text;
+    res.json({ text: finalText, chars: text.length, truncated, filename });
+  } catch (err) {
+    console.error('[extract-text]', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
  * POST /api/feishu/fetch
  * Proxy fetch for Feishu document content
  * Attempts to fetch publicly accessible Feishu document content
@@ -941,54 +1039,94 @@ async function callDeepSeek(apiKey, model, messages, systemPrompt, tools, custom
  * @returns {string}    raw text content from the model
  */
 /**
- * Retry wrapper with exponential backoff.
- * Retries on 429 (rate-limit) and 503 (service unavailable).
- * Does NOT retry on 404 (model not found) or other client errors.
+ * Retry wrapper with exponential backoff + per-request AbortSignal timeout.
+ * Retries on:
+ *   - 429 (rate-limit), 503 (service unavailable)
+ *   - 500 when body contains "timed out" / "timeout" (Qwen/Doubao transient)
+ *   - Network errors (ECONNRESET, ETIMEDOUT, fetch failed, AbortError)
+ * Does NOT retry on 404 (model not found) or other 4xx client errors.
+ *
+ * @param {number} requestTimeout  — per-attempt HTTP timeout in ms (default 90 s)
+ * @param {number} maxRetries      — number of retries after first attempt (default 4)
  */
-async function fetchWithRetry(url, options, { maxRetries = 3, baseDelay = 1000, providerLabel = 'API' } = {}) {
+async function fetchWithRetry(url, options, {
+  maxRetries = 4,
+  baseDelay = 1500,
+  providerLabel = 'API',
+  requestTimeout = 90_000,   // 90 s per attempt; increase for very slow providers
+} = {}) {
   let lastError;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const resp = await fetch(url, options);
 
-      // Success — return immediately
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Each attempt gets its own AbortController so we don't double-abort
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), requestTimeout);
+
+    try {
+      const resp = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      // ── Success ─────────────────────────────────────────────────────────
       if (resp.ok) return resp;
 
-      // 404 — model not found, no point retrying
+      // ── 404: no retry ────────────────────────────────────────────────────
       if (resp.status === 404) {
         const err = await resp.json().catch(() => ({}));
         throw new Error(`${providerLabel} error (404 模型不存在): ${err.error?.message || JSON.stringify(err)}`);
       }
 
-      // 429 / 503 — retryable
-      if ((resp.status === 429 || resp.status === 503) && attempt < maxRetries) {
+      // ── Parse error body once for logging and retry-decision ─────────────
+      const errBody = await resp.json().catch(() => ({}));
+      const errMsg  = errBody.error?.message || errBody.message || JSON.stringify(errBody);
+
+      const isTimeoutMsg = /timed?\s*out|timeout|request.*expired|overloaded/i.test(errMsg);
+      const isRetryable  =
+        resp.status === 429 ||
+        resp.status === 503 ||
+        (resp.status === 500 && isTimeoutMsg);
+
+      if (isRetryable && attempt < maxRetries) {
         const retryAfter = resp.headers.get('retry-after');
-        // For 429, respect Retry-After header or use longer backoff
+        // 429: respect Retry-After or use aggressive backoff
         const delay = resp.status === 429
-          ? (retryAfter ? parseInt(retryAfter, 10) * 1000 : baseDelay * Math.pow(2, attempt) * 2)
-          : baseDelay * Math.pow(2, attempt);
-        console.log(`[callLLMForEval] ${providerLabel} ${resp.status}, 第 ${attempt + 1}/${maxRetries} 次重试，等待 ${delay}ms...`);
+          ? (retryAfter ? parseInt(retryAfter, 10) * 1000 : baseDelay * Math.pow(2, attempt + 1))
+          : baseDelay * Math.pow(2, attempt + 1);
+        console.warn(`[fetchWithRetry] ${providerLabel} HTTP ${resp.status} (${errMsg.slice(0, 80)}), 第 ${attempt + 1}/${maxRetries} 次重试，等待 ${delay}ms…`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
 
-      // Other errors — throw immediately
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(`${providerLabel} error (${resp.status}): ${err.error?.message || JSON.stringify(err)}`);
+      // Non-retryable error
+      throw new Error(`${providerLabel} error (${resp.status}): ${errMsg}`);
+
     } catch (e) {
-      lastError = e;
-      // Network errors (ECONNRESET, ETIMEDOUT, etc.) are retryable
-      if (e.cause || e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT' || e.message.includes('fetch failed')) {
-        if (attempt < maxRetries) {
-          const delay = baseDelay * Math.pow(2, attempt);
-          console.log(`[callLLMForEval] ${providerLabel} 网络错误: ${e.message}, 第 ${attempt + 1}/${maxRetries} 次重试，等待 ${delay}ms...`);
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
-        }
+      clearTimeout(timeoutId);
+
+      // Wrap AbortError into a friendlier message
+      if (e.name === 'AbortError') {
+        lastError = new Error(`${providerLabel} 请求超时（单次 ${requestTimeout / 1000}s），请检查网络连通性或换用其他模型`);
+      } else {
+        lastError = e;
       }
-      throw e;
+
+      // Network / abort errors — retryable
+      const isNetErr =
+        e.name === 'AbortError' ||
+        e.cause != null ||
+        ['ECONNRESET','ETIMEDOUT','ECONNREFUSED','ENOTFOUND'].includes(e.code) ||
+        /fetch failed|network|socket/i.test(e.message);
+
+      if (isNetErr && attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt + 1);
+        console.warn(`[fetchWithRetry] ${providerLabel} 网络错误 (${lastError.message.slice(0, 60)}), 第 ${attempt + 1}/${maxRetries} 次重试，等待 ${delay}ms…`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+
+      throw lastError;
     }
   }
+
   throw lastError;
 }
 
@@ -1018,15 +1156,26 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
     return data.content?.[0]?.text || '';
   }
 
-  // ── OpenAI-compatible providers (openai, doubao, qwen, deepseek) ──────────
-  if (['openai', 'doubao', 'qwen', 'deepseek'].includes(modelConfig.provider)) {
-    const DEFAULTS = {
-      openai:   'https://api.openai.com/v1',
-      doubao:   'https://ark.cn-beijing.volces.com/api/v3',
-      qwen:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      deepseek: 'https://api.deepseek.com/v1',
-    };
-    const baseUrl = (modelConfig.baseUrl || DEFAULTS[modelConfig.provider]).replace(/\/$/, '');
+  // ── OpenAI-compatible providers ──────────────────────────────────────────
+  // All providers below share the same /chat/completions interface.
+  const OPENAI_COMPAT_DEFAULTS = {
+    openai:   'https://api.openai.com/v1',
+    doubao:   'https://ark.cn-beijing.volces.com/api/v3',
+    qwen:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    deepseek: 'https://api.deepseek.com/v1',
+    xai:      'https://api.x.ai/v1',
+    mistral:  'https://api.mistral.ai/v1',
+    groq:     'https://api.groq.com/openai/v1',
+    nvidia:   'https://integrate.api.nvidia.com/v1',
+    moonshot: 'https://api.moonshot.cn/v1',
+    zhipu:    'https://open.bigmodel.cn/api/paas/v4',
+    minimax:  'https://api.minimax.chat/v1',
+    venice:   'https://api.venice.ai/api/v1',
+    bedrock:  'https://bedrock-runtime.us-east-1.amazonaws.com/v1',
+  };
+
+  if (Object.keys(OPENAI_COMPAT_DEFAULTS).includes(modelConfig.provider)) {
+    const baseUrl = (modelConfig.baseUrl || OPENAI_COMPAT_DEFAULTS[modelConfig.provider]).replace(/\/$/, '');
     const messages = systemPrompt
       ? [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }]
       : [{ role: 'user', content: userPrompt }];
@@ -1038,15 +1187,18 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
       messages,
     };
     // OpenAI supports seed for deterministic outputs
-    if (modelConfig.provider === 'openai') {
-      reqBody.seed = 42;
-    }
+    if (modelConfig.provider === 'openai') reqBody.seed = 42;
+
+    // Qwen / Doubao: increase per-attempt timeout to 120 s (prone to slowness)
+    const providerTimeout = ['qwen', 'doubao', 'minimax', 'zhipu'].includes(modelConfig.provider)
+      ? 120_000
+      : 90_000;
 
     const resp = await fetchWithRetry(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${modelConfig.apiKey}`, 'content-type': 'application/json' },
       body: JSON.stringify(reqBody),
-    }, { providerLabel: modelConfig.provider });
+    }, { providerLabel: modelConfig.provider, requestTimeout: providerTimeout, maxRetries: 4 });
 
     const data = await resp.json();
     return data.choices?.[0]?.message?.content || '';

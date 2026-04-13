@@ -27,41 +27,64 @@ import { chatWithModel } from '../utils/api';
 const { Title, Text, Paragraph } = Typography;
 
 /**
- * Diff 查看器组件，带有颜色编码
+ * Diff 查看器组件 — 行级红/绿色块高亮
  */
 const DiffViewer = ({ changes }) => {
+  const lines = [];
+  changes.forEach((part, partIdx) => {
+    const segments = part.value.split('\n');
+    segments.forEach((seg, segIdx) => {
+      if (segIdx === segments.length - 1 && seg === '') return;
+      lines.push({ text: seg, added: part.added, removed: part.removed, key: `${partIdx}-${segIdx}` });
+    });
+  });
+
   return (
-    <div style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.5' }}>
-      {changes.map((part, index) => {
-        if (part.added) {
-          return (
-            <span
-              key={index}
-              style={{
-                backgroundColor: '#d4edda',
-                color: '#155724',
-              }}
-            >
-              {part.value}
+    <div style={{ fontFamily: "'JetBrains Mono','Fira Code','Consolas',monospace", fontSize: '12px', lineHeight: '1.65', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e5e7eb' }}>
+      <div style={{ display: 'flex', gap: '16px', padding: '8px 12px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '11px', color: '#6b7280' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '2px', background: '#fee2e2', border: '1px solid #fca5a5' }} />
+          删除 (版本A)
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '2px', background: '#dcfce7', border: '1px solid #86efac' }} />
+          新增 (版本B)
+        </span>
+      </div>
+      <div>
+        {lines.map((line, idx) => (
+          <div
+            key={line.key}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              padding: '1px 0',
+              background: line.removed ? '#fee2e2' : line.added ? '#dcfce7' : (idx % 2 === 0 ? '#fff' : '#fafafa'),
+              borderLeft: line.removed ? '3px solid #ef4444' : line.added ? '3px solid #22c55e' : '3px solid transparent',
+            }}
+          >
+            <span style={{
+              width: '20px', flexShrink: 0, textAlign: 'center',
+              fontSize: '11px', fontWeight: 700, paddingTop: '1px',
+              color: line.removed ? '#dc2626' : line.added ? '#16a34a' : 'transparent',
+              userSelect: 'none',
+            }}>
+              {line.removed ? '−' : line.added ? '+' : ''}
             </span>
-          );
-        }
-        if (part.removed) {
-          return (
-            <span
-              key={index}
-              style={{
-                backgroundColor: '#f8d7da',
-                color: '#721c24',
-                textDecoration: 'line-through',
-              }}
-            >
-              {part.value}
+            <span style={{ width: '36px', flexShrink: 0, textAlign: 'right', paddingRight: '10px', fontSize: '11px', color: '#9ca3af', userSelect: 'none' }}>
+              {idx + 1}
             </span>
-          );
-        }
-        return <span key={index}>{part.value}</span>;
-      })}
+            <span style={{
+              flex: 1, padding: '1px 8px 1px 2px',
+              color: line.removed ? '#b91c1c' : line.added ? '#15803d' : '#374151',
+              textDecoration: line.removed ? 'line-through' : 'none',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+            }}>
+              {line.text || ' '}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -591,16 +614,7 @@ const VersionManager = () => {
             </Space>
 
             {diffChanges.length > 0 && (
-              <div
-                style={{
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  padding: '16px',
-                  maxHeight: '500px',
-                  overflowY: 'auto',
-                  background: '#f9fafb',
-                }}
-              >
+              <div style={{ maxHeight: '520px', overflowY: 'auto', borderRadius: '8px' }}>
                 <DiffViewer changes={diffChanges} />
               </div>
             )}

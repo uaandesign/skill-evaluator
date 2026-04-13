@@ -44,53 +44,112 @@ const App = () => {
     <ConfigProvider
       theme={{
         token: {
-          colorPrimary: '#111827',
-          colorSuccess: '#374151',
-          colorWarning: '#6b7280',
-          colorError: '#374151',
+          colorPrimary: '#2563eb',
+          colorPrimaryHover: '#1d4ed8',
+          colorPrimaryActive: '#1e40af',
+          colorSuccess: '#16a34a',
+          colorWarning: '#d97706',
+          colorError: '#dc2626',
+          colorTextBase: '#111827',
+          colorBgBase: '#ffffff',
           borderRadius: 8,
+          borderRadiusLG: 12,
+          borderRadiusSM: 6,
           fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif",
           fontSize: 13,
+          lineHeight: 1.5,
+          colorBorder: '#e5e7eb',
+          colorBorderSecondary: '#f3f4f6',
+          controlHeight: 34,
+          controlHeightLG: 40,
+          controlHeightSM: 28,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
         },
         components: {
-          Menu: { itemHeight: 40, itemMarginInline: 8 },
+          Menu: {
+            itemHeight: 40,
+            itemMarginInline: 6,
+            itemBorderRadius: 8,
+            itemSelectedBg: '#eff6ff',
+            itemSelectedColor: '#1d4ed8',
+            itemHoverBg: '#eff6ff',
+            itemHoverColor: '#2563eb',
+          },
+          Button: {
+            borderRadius: 8,
+            primaryShadow: '0 1px 3px rgba(0,0,0,0.12)',
+          },
+          Card: {
+            borderRadiusLG: 12,
+          },
+          Input: {
+            borderRadius: 8,
+          },
+          Select: {
+            borderRadius: 8,
+          },
+          Modal: {
+            borderRadiusLG: 16,
+          },
         },
       }}
     >
-      <Layout style={{ height: '100vh', background: '#f9fafb' }}>
+      <Layout style={{ height: '100vh', background: '#f4f6f9' }}>
         <Header
           style={{
-            height: '52px', lineHeight: '52px', padding: '0 20px',
+            height: '52px', lineHeight: '52px', padding: '0 24px',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             borderBottom: '1px solid #e5e7eb', backgroundColor: '#fff',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.04)', zIndex: 10,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.06)', zIndex: 10,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#111827', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '13px', fontWeight: 700, letterSpacing: '-0.5px' }}>SE</div>
-            <span style={{ fontSize: '15px', fontWeight: 600, color: '#111827', letterSpacing: '-0.3px' }}>Skill Evaluator</span>
-            <div style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#111827', opacity: 0.4 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '30px', height: '30px', borderRadius: '10px',
+              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fff', fontSize: '12px', fontWeight: 700, letterSpacing: '-0.5px',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+            }}>SE</div>
+            <span style={{ fontSize: '14px', fontWeight: 600, color: '#111827', letterSpacing: '-0.2px' }}>Skill Evaluator</span>
+            <div style={{ width: '1px', height: '16px', background: '#e5e7eb' }} />
+            <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 400 }}>{getTabTitle()}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 400 }}>{getTabTitle()}</span>
-            <span style={{ fontSize: '10px', color: '#9ca3af', background: '#f3f4f6', padding: '2px 6px', borderRadius: '4px', fontWeight: 500 }}>v2.0</span>
+            <span style={{ fontSize: '10px', color: '#9ca3af', background: '#f8fafc', padding: '2px 8px', borderRadius: '20px', fontWeight: 500, border: '1px solid #e5e7eb', letterSpacing: '0.02em' }}>v2.0</span>
           </div>
         </Header>
 
         <Layout style={{ flex: 1, overflow: 'hidden' }}>
           <Sider
             collapsed={collapsed} onCollapse={setCollapsed} collapsible trigger={null}
-            width={200} collapsedWidth={60}
-            style={{ backgroundColor: '#fff', borderRight: '1px solid #e5e7eb', overflow: 'auto' }}
+            width={196} collapsedWidth={56}
+            style={{ backgroundColor: '#fff', borderRight: '1px solid #e5e7eb', overflow: 'auto', boxShadow: '1px 0 4px rgba(0,0,0,0.03)' }}
           >
-            <div style={{ padding: '8px 0' }}>
-              <Menu mode="inline" selectedKeys={[activeTab]} items={menuItems} onClick={({ key }) => setActiveTab(key)} style={{ border: 'none', background: 'transparent' }} />
+            <div style={{ padding: '8px 4px' }}>
+              <Menu
+                mode="inline"
+                selectedKeys={[activeTab]}
+                items={menuItems}
+                onClick={({ key }) => setActiveTab(key)}
+                style={{ border: 'none', background: 'transparent', fontSize: '13px' }}
+              />
             </div>
-            <div onClick={() => setCollapsed(!collapsed)} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px', textAlign: 'center', borderTop: '1px solid #f3f4f6', cursor: 'pointer', fontSize: '14px', color: '#9ca3af', userSelect: 'none' }}>
-              {collapsed ? '>' : '<'}
+            <div
+              onClick={() => setCollapsed(!collapsed)}
+              style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                padding: '12px', textAlign: 'center',
+                borderTop: '1px solid #f3f4f6',
+                cursor: 'pointer', fontSize: '12px',
+                color: '#9ca3af', userSelect: 'none',
+                transition: 'color 200ms',
+              }}
+            >
+              {collapsed ? '→' : '←'}
             </div>
           </Sider>
-          <Content style={{ padding: isFullWidth ? '0' : '20px', overflow: isFullWidth ? 'hidden' : 'auto', backgroundColor: '#f9fafb' }}>
+          <Content style={{ padding: isFullWidth ? '0' : '20px 24px', overflow: isFullWidth ? 'hidden' : 'auto', backgroundColor: '#f4f6f9' }}>
             <div style={{ maxWidth: isFullWidth ? '100%' : '1400px', margin: '0 auto', height: isFullWidth ? '100%' : 'auto' }}>
               {renderContent()}
             </div>

@@ -254,16 +254,17 @@ code, pre {
   transition: width var(--transition-base);
 }
 .ant-menu-item:hover {
-  color: var(--color-text) !important;
-  background-color: var(--color-bg-tertiary) !important;
+  color: #2563eb !important;
+  background-color: #eff6ff !important;
 }
 .ant-menu-item-selected {
-  background-color: var(--color-primary-light) !important;
-  color: var(--color-text) !important;
-  font-weight: 500 !important;
+  background-color: #eff6ff !important;
+  color: #1d4ed8 !important;
+  font-weight: 600 !important;
 }
 .ant-menu-item-selected::before {
   width: 3px;
+  background: #2563eb !important;
 }
 
 /* Cards */
@@ -272,10 +273,15 @@ code, pre {
   box-shadow: var(--shadow-xs) !important;
   border-radius: var(--radius-lg) !important;
   background: var(--color-bg) !important;
-  transition: box-shadow var(--transition-base), transform var(--transition-base) !important;
+  transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base) !important;
 }
 .ant-card:hover {
-  box-shadow: var(--shadow-sm) !important;
+  box-shadow: 0 4px 16px rgba(37,99,235,0.08), 0 1px 4px rgba(0,0,0,0.06) !important;
+}
+.ant-card.ant-card-hoverable:hover {
+  border-color: #bfdbfe !important;
+  box-shadow: 0 4px 20px rgba(37,99,235,0.1), 0 1px 4px rgba(0,0,0,0.06) !important;
+  transform: translateY(-1px);
 }
 .ant-card-head {
   border-bottom: 1px solid var(--color-border-light) !important;
@@ -317,18 +323,20 @@ code, pre {
   color: var(--color-text-placeholder) !important;
 }
 
-/* Buttons — Monochrome */
+/* Buttons — Default monochrome, hover/active adds subtle hue */
 .ant-btn {
-  border-radius: var(--radius-sm) !important;
+  border-radius: var(--radius-md) !important;
   font-weight: 500 !important;
   font-size: var(--font-size-base) !important;
   transition: all var(--transition-fast) !important;
+  letter-spacing: 0.01em !important;
 }
 .ant-btn > span {
   display: inline-flex !important;
   align-items: center !important;
   gap: 4px !important;
 }
+/* Primary — black default, blue hover */
 .ant-btn-primary {
   background: #111827 !important;
   border-color: #111827 !important;
@@ -339,17 +347,19 @@ code, pre {
   color: #fff !important;
 }
 .ant-btn-primary:hover:not(:disabled) {
-  background: #1f2937 !important;
-  border-color: #1f2937 !important;
+  background: #1d4ed8 !important;
+  border-color: #1d4ed8 !important;
   color: #fff !important;
-  box-shadow: var(--shadow-button-hover) !important;
+  box-shadow: 0 4px 14px rgba(29,78,216,0.28) !important;
   transform: translateY(-1px);
 }
 .ant-btn-primary:active:not(:disabled) {
-  background: #000 !important;
+  background: #1e40af !important;
+  border-color: #1e40af !important;
   color: #fff !important;
   transform: translateY(0);
 }
+/* Default — gray default, blue tint on hover */
 .ant-btn-default {
   border-color: var(--color-border) !important;
   color: var(--color-text-secondary) !important;
@@ -359,16 +369,24 @@ code, pre {
   color: inherit !important;
 }
 .ant-btn-default:hover:not(:disabled) {
-  border-color: var(--color-text) !important;
-  color: var(--color-text) !important;
+  border-color: #3b82f6 !important;
+  color: #2563eb !important;
+  background: #eff6ff !important;
 }
+.ant-btn-default:active:not(:disabled) {
+  border-color: #2563eb !important;
+  color: #1d4ed8 !important;
+  background: #dbeafe !important;
+}
+/* Text */
 .ant-btn-text {
   color: var(--color-text-secondary) !important;
 }
 .ant-btn-text:hover:not(:disabled) {
-  color: var(--color-text) !important;
-  background: var(--color-bg-tertiary) !important;
+  color: #2563eb !important;
+  background: #eff6ff !important;
 }
+/* Dashed */
 .ant-btn-dashed {
   border-color: var(--color-border) !important;
   color: var(--color-text-tertiary) !important;
@@ -378,10 +396,11 @@ code, pre {
   color: inherit !important;
 }
 .ant-btn-dashed:hover:not(:disabled) {
-  border-color: var(--color-text) !important;
-  color: var(--color-text) !important;
-  background: var(--color-primary-light) !important;
+  border-color: #3b82f6 !important;
+  color: #2563eb !important;
+  background: #eff6ff !important;
 }
+/* Danger */
 .ant-btn-dangerous.ant-btn-primary {
   background: #374151 !important;
   border-color: #374151 !important;
@@ -392,12 +411,18 @@ code, pre {
   color: #fff !important;
 }
 .ant-btn-dangerous.ant-btn-primary:hover:not(:disabled) {
-  background: #1f2937 !important;
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
   color: #fff !important;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2) !important;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.25) !important;
+}
+.ant-btn-dangerous:not(.ant-btn-primary):hover:not(:disabled) {
+  color: #dc2626 !important;
+  border-color: #fca5a5 !important;
+  background: #fef2f2 !important;
 }
 .ant-btn:disabled {
-  opacity: 0.45 !important;
+  opacity: 0.4 !important;
 }
 
 /* Tags — Monochrome */
@@ -538,6 +563,56 @@ code, pre {
 /* Progress — Monochrome */
 .ant-progress-bg {
   background-color: #111827 !important;
+}
+
+/* ============================================
+   Version Diff Viewer
+   ============================================ */
+.diff-line {
+  display: block;
+  padding: 1px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.diff-line-added {
+  background-color: #dcfce7;
+  border-left: 3px solid #16a34a;
+  color: #15803d;
+  padding-left: 10px;
+}
+.diff-line-removed {
+  background-color: #fee2e2;
+  border-left: 3px solid #dc2626;
+  color: #b91c1c;
+  text-decoration: line-through;
+  padding-left: 10px;
+}
+.diff-line-unchanged {
+  color: var(--color-text-secondary);
+}
+.diff-line-added .diff-marker::before { content: '+ '; color: #16a34a; font-weight: 700; }
+.diff-line-removed .diff-marker::before { content: '− '; color: #dc2626; font-weight: 700; }
+
+/* Input hover/focus hue */
+.ant-input:hover,
+.ant-input-affix-wrapper:hover,
+.ant-input-number:hover {
+  border-color: #3b82f6 !important;
+}
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-affix-wrapper-focused,
+.ant-input-number-focused {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12) !important;
+}
+
+/* Tabs hover hue */
+.ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: #2563eb !important;
 }
 
 /* ============================================

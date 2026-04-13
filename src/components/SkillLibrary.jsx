@@ -10,7 +10,6 @@ import {
   Row,
   Col,
   Input,
-  Statistic,
   Popconfirm,
   Empty,
   message,
@@ -140,29 +139,79 @@ const { Title, Text, Paragraph } = Typography;
 const { Search } = Input;
 
 /**
- * Diff Viewer
+ * Diff Viewer — line-by-line with red/green block highlights
  */
-const DiffViewer = ({ changes }) => (
-  <div style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6' }}>
-    {changes.map((part, index) => {
-      if (part.added) {
-        return (
-          <span key={index} style={{ backgroundColor: '#e5e7eb', color: '#111827' }}>
-            {part.value}
-          </span>
-        );
-      }
-      if (part.removed) {
-        return (
-          <span key={index} style={{ backgroundColor: '#f3f4f6', color: '#6b7280', textDecoration: 'line-through' }}>
-            {part.value}
-          </span>
-        );
-      }
-      return <span key={index}>{part.value}</span>;
-    })}
-  </div>
-);
+const DiffViewer = ({ changes }) => {
+  // Re-split changes into individual lines for block display
+  const lines = [];
+  changes.forEach((part, partIdx) => {
+    const segments = part.value.split('\n');
+    segments.forEach((seg, segIdx) => {
+      // Skip trailing empty string from final newline split
+      if (segIdx === segments.length - 1 && seg === '') return;
+      lines.push({ text: seg, added: part.added, removed: part.removed, key: `${partIdx}-${segIdx}` });
+    });
+  });
+
+  return (
+    <div style={{ fontFamily: "'JetBrains Mono','Fira Code','Consolas',monospace", fontSize: '12px', lineHeight: '1.65', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e5e7eb' }}>
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: '16px', padding: '8px 12px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '11px', color: '#6b7280' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '2px', background: '#fee2e2', border: '1px solid #fca5a5' }} />
+          删除
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '2px', background: '#dcfce7', border: '1px solid #86efac' }} />
+          新增
+        </span>
+      </div>
+      <div>
+        {lines.map((line, idx) => (
+          <div
+            key={line.key}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              padding: '1px 0',
+              background: line.removed ? '#fee2e2' : line.added ? '#dcfce7' : (idx % 2 === 0 ? '#fff' : '#fafafa'),
+              borderLeft: line.removed ? '3px solid #ef4444' : line.added ? '3px solid #22c55e' : '3px solid transparent',
+            }}
+          >
+            {/* Marker */}
+            <span style={{
+              width: '20px',
+              flexShrink: 0,
+              textAlign: 'center',
+              fontSize: '11px',
+              fontWeight: 700,
+              paddingTop: '1px',
+              color: line.removed ? '#dc2626' : line.added ? '#16a34a' : 'transparent',
+              userSelect: 'none',
+            }}>
+              {line.removed ? '−' : line.added ? '+' : ''}
+            </span>
+            {/* Line number */}
+            <span style={{ width: '36px', flexShrink: 0, textAlign: 'right', paddingRight: '10px', fontSize: '11px', color: '#9ca3af', userSelect: 'none' }}>
+              {idx + 1}
+            </span>
+            {/* Content */}
+            <span style={{
+              flex: 1,
+              padding: '1px 8px 1px 2px',
+              color: line.removed ? '#b91c1c' : line.added ? '#15803d' : '#374151',
+              textDecoration: line.removed ? 'line-through' : 'none',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+            }}>
+              {line.text || ' '}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 /**
  * Skill Library
@@ -399,42 +448,54 @@ const SkillLibrary = () => {
         hoverable
         onClick={() => openDetail(skill.id)}
         style={{
-          borderRadius: '12px',
-          border: activeSkillId === skill.id ? '2px solid #111827' : '1px solid #e5e7eb',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          transition: 'all 200ms',
+          borderRadius: '14px',
+          border: activeSkillId === skill.id ? '1.5px solid #2563eb' : '1px solid #e5e7eb',
+          boxShadow: activeSkillId === skill.id ? '0 0 0 3px rgba(37,99,235,0.08)' : '0 1px 4px rgba(0,0,0,0.05)',
+          transition: 'all 200ms ease',
           height: '100%',
+          background: activeSkillId === skill.id ? '#fafcff' : '#fff',
         }}
-        bodyStyle={{ padding: '16px' }}
+        bodyStyle={{ padding: '16px 18px' }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Text strong style={{ fontSize: '15px', display: 'block', marginBottom: '4px' }} ellipsis>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+          <div style={{ flex: 1, minWidth: 0, marginRight: '8px' }}>
+            <Text strong style={{ fontSize: '14px', display: 'block', marginBottom: '6px', color: '#111827', lineHeight: 1.3 }} ellipsis>
               {skill.name || '未命名技能'}
             </Text>
-            <Tag style={{ fontSize: '11px' }}>
+            <span style={{
+              display: 'inline-block', fontSize: '10px', fontWeight: 600,
+              padding: '1px 7px', borderRadius: '4px', letterSpacing: '0.03em',
+              background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0',
+            }}>
               {getFormatLabel(skill.format)}
-            </Tag>
+            </span>
           </div>
           {activeSkillId === skill.id && (
-            <Badge status="processing" text={<Text style={{ fontSize: '11px', color: '#111827' }}>使用中</Text>} />
+            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', padding: '2px 7px', borderRadius: '20px', border: '1px solid #bfdbfe' }}>
+              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#2563eb', animation: 'gentlePulse 2s infinite' }} />
+              <span style={{ fontSize: '10px', color: '#2563eb', fontWeight: 600 }}>使用中</span>
+            </div>
           )}
         </div>
 
+        {/* Description */}
         <Paragraph
-          style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px' }}
+          style={{ fontSize: '12px', color: '#6b7280', marginBottom: '14px', lineHeight: 1.55 }}
           ellipsis={{ rows: 2 }}
         >
           {skill.description || '暂无描述'}
         </Paragraph>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ fontSize: '11px', color: '#9ca3af' }}>
+        {/* Footer */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+          <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '3px' }}>
+            <span style={{ fontSize: '10px' }}>⊙</span>
             {skill.versions?.length || 1} 个版本
-          </Text>
-          <Text style={{ fontSize: '11px', color: '#9ca3af' }}>
+          </span>
+          <span style={{ fontSize: '11px', color: '#94a3b8' }}>
             {skill.updatedAt ? new Date(skill.updatedAt).toLocaleDateString('zh-CN') : ''}
-          </Text>
+          </span>
         </div>
       </Card>
     </Col>
@@ -495,73 +556,59 @@ const SkillLibrary = () => {
   return (
     <div style={{ padding: '0' }}>
       {/* Top Action Bar */}
-      <Card
-        style={{
-          marginBottom: '20px',
-          borderRadius: '12px',
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-        }}
-        bodyStyle={{ padding: '20px' }}
-      >
+      <div style={{ marginBottom: '20px' }}>
+        {/* Title row */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <Title level={3} style={{ margin: 0 }}>技能库</Title>
-          <Space>
-            <Button type="primary" onClick={() => setUploadDrawerVisible(true)}>上传技能</Button>
-          </Space>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#111827', letterSpacing: '-0.3px' }}>技能库</h2>
+            <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#6b7280' }}>管理和版本控制你的 Skill 文件</p>
+          </div>
+          <Button type="primary" onClick={() => setUploadDrawerVisible(true)}>
+            + 上传技能
+          </Button>
         </div>
 
-        <Row gutter={16} align="middle">
-          <Col flex="auto">
-            <Search
-              placeholder="搜索技能名称或描述..."
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              allowClear
-              style={{ maxWidth: '400px' }}
-            />
-          </Col>
-          <Col>
-            <Select
-              value={filterFormat}
-              onChange={setFilterFormat}
-              style={{ width: '140px' }}
-              options={[
-                { label: '全部格式', value: 'all' },
-                { label: 'SKILL.md', value: 'skillmd' },
-                { label: 'Function Call', value: 'function' },
-                { label: 'Prompt Template', value: 'prompt' },
-              ]}
-            />
-          </Col>
-          <Col>
-            <Button.Group>
-              <Button type={viewMode === 'grid' ? 'primary' : 'default'} onClick={() => setViewMode('grid')}>
-                Grid
-              </Button>
-              <Button type={viewMode === 'list' ? 'primary' : 'default'} onClick={() => setViewMode('list')}>
-                List
-              </Button>
-            </Button.Group>
-          </Col>
-        </Row>
+        {/* Stats row */}
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+          {[
+            { label: '全部', value: skills.length, color: '#111827', bg: '#f1f5f9' },
+            { label: 'SKILL.md', value: skills.filter(s => s.format === 'skillmd' || s.format === 'skill_md').length, color: '#0369a1', bg: '#f0f9ff' },
+            { label: 'Function', value: skills.filter(s => s.format === 'function' || s.format === 'function_call').length, color: '#7c3aed', bg: '#faf5ff' },
+            { label: 'Prompt', value: skills.filter(s => s.format === 'prompt' || s.format === 'prompt_template').length, color: '#065f46', bg: '#f0fdf4' },
+          ].map(({ label, value, color, bg }) => (
+            <div key={label} style={{ padding: '10px 16px', borderRadius: '10px', background: bg, border: '1px solid transparent', minWidth: '80px' }}>
+              <div style={{ fontSize: '18px', fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
+              <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '3px' }}>{label}</div>
+            </div>
+          ))}
+        </div>
 
-        {/* Stats */}
-        <Row gutter={24} style={{ marginTop: '16px' }}>
-          <Col>
-            <Statistic title="技能总数" value={skills.length} valueStyle={{ color: '#111827', fontSize: '20px' }} />
-          </Col>
-          <Col>
-            <Statistic title="SKILL.md" value={skills.filter((s) => s.format === 'skillmd' || s.format === 'skill_md').length} valueStyle={{ color: '#111827', fontSize: '20px' }} />
-          </Col>
-          <Col>
-            <Statistic title="Function Call" value={skills.filter((s) => s.format === 'function' || s.format === 'function_call').length} valueStyle={{ color: '#111827', fontSize: '20px' }} />
-          </Col>
-          <Col>
-            <Statistic title="Prompt Template" value={skills.filter((s) => s.format === 'prompt' || s.format === 'prompt_template').length} valueStyle={{ color: '#111827', fontSize: '20px' }} />
-          </Col>
-        </Row>
-      </Card>
+        {/* Search + filter row */}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <Search
+            placeholder="搜索技能名称或描述..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            allowClear
+            style={{ flex: 1, maxWidth: '360px' }}
+          />
+          <Select
+            value={filterFormat}
+            onChange={setFilterFormat}
+            style={{ width: '140px' }}
+            options={[
+              { label: '全部格式', value: 'all' },
+              { label: 'SKILL.md', value: 'skillmd' },
+              { label: 'Function Call', value: 'function' },
+              { label: 'Prompt Template', value: 'prompt' },
+            ]}
+          />
+          <Button.Group>
+            <Button type={viewMode === 'grid' ? 'primary' : 'default'} onClick={() => setViewMode('grid')} title="卡片视图">▦</Button>
+            <Button type={viewMode === 'list' ? 'primary' : 'default'} onClick={() => setViewMode('list')} title="列表视图">☰</Button>
+          </Button.Group>
+        </div>
+      </div>
 
       {/* Skill List */}
       {filteredSkills.length === 0 ? (
@@ -816,43 +863,94 @@ const SkillLibrary = () => {
 
       {/* Version Compare Modal */}
       <Modal
-        title="版本对比"
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '15px', fontWeight: 600, color: '#111827' }}>版本对比</span>
+            {compareVersionA !== null && compareVersionB !== null && (
+              <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 400 }}>
+                v{compareVersionA + 1} → v{compareVersionB + 1}
+              </span>
+            )}
+          </div>
+        }
         open={versionCompareVisible}
         onCancel={() => { setVersionCompareVisible(false); setCompareVersionA(null); setCompareVersionB(null); }}
-        width={900}
+        width={960}
         footer={null}
+        styles={{ body: { padding: '20px 24px' } }}
       >
         {selectedSkill?.versions && (
           <>
-            <Space style={{ marginBottom: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-              <div>
-                <Text strong>版本 A：</Text>
+            {/* Version selector row */}
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', padding: '16px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '6px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>旧版本 A</div>
                 <Select
-                  style={{ width: '160px', marginLeft: '8px' }}
-                  placeholder="选择版本"
+                  style={{ width: '100%' }}
+                  placeholder="选择版本 A"
                   value={compareVersionA}
                   onChange={setCompareVersionA}
-                  options={selectedSkill.versions.map((v, idx) => ({ label: `v${idx + 1}`, value: idx }))}
+                  options={selectedSkill.versions.map((v, idx) => ({
+                    label: (
+                      <span>
+                        <span style={{ fontWeight: 600 }}>v{idx + 1}</span>
+                        <span style={{ color: '#9ca3af', marginLeft: '6px', fontSize: '11px' }}>
+                          {v.timestamp ? new Date(v.timestamp).toLocaleDateString('zh-CN') : ''}
+                        </span>
+                      </span>
+                    ),
+                    value: idx
+                  }))}
                 />
               </div>
-              <div>
-                <Text strong>版本 B：</Text>
+              <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '4px', color: '#9ca3af', fontSize: '16px' }}>→</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '6px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>新版本 B</div>
                 <Select
-                  style={{ width: '160px', marginLeft: '8px' }}
-                  placeholder="选择版本"
+                  style={{ width: '100%' }}
+                  placeholder="选择版本 B"
                   value={compareVersionB}
                   onChange={setCompareVersionB}
-                  options={selectedSkill.versions.map((v, idx) => ({ label: `v${idx + 1}`, value: idx }))}
+                  options={selectedSkill.versions.map((v, idx) => ({
+                    label: (
+                      <span>
+                        <span style={{ fontWeight: 600 }}>v{idx + 1}</span>
+                        <span style={{ color: '#9ca3af', marginLeft: '6px', fontSize: '11px' }}>
+                          {v.timestamp ? new Date(v.timestamp).toLocaleDateString('zh-CN') : ''}
+                        </span>
+                      </span>
+                    ),
+                    value: idx
+                  }))}
                 />
               </div>
-            </Space>
+            </div>
+
+            {/* Stats banner when both selected */}
+            {compareVersionA !== null && compareVersionB !== null && diffChanges.length > 0 && (() => {
+              const added = diffChanges.filter(c => c.added).reduce((n, c) => n + c.value.split('\n').filter(Boolean).length, 0);
+              const removed = diffChanges.filter(c => c.removed).reduce((n, c) => n + c.value.split('\n').filter(Boolean).length, 0);
+              return (
+                <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                  <div style={{ padding: '8px 14px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', fontSize: '12px', color: '#dc2626', fontWeight: 600 }}>
+                    − {removed} 行删除
+                  </div>
+                  <div style={{ padding: '8px 14px', borderRadius: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: '12px', color: '#16a34a', fontWeight: 600 }}>
+                    + {added} 行新增
+                  </div>
+                </div>
+              );
+            })()}
 
             {diffChanges.length > 0 ? (
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px', maxHeight: '500px', overflowY: 'auto', background: '#f9fafb' }}>
+              <div style={{ maxHeight: '480px', overflowY: 'auto', borderRadius: '10px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
                 <DiffViewer changes={diffChanges} />
               </div>
             ) : compareVersionA !== null && compareVersionB !== null ? (
-              <Empty description="两个版本内容相同" />
+              <div style={{ padding: '32px', textAlign: 'center', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>✓</div>
+                <div style={{ color: '#15803d', fontWeight: 500 }}>两个版本内容完全相同</div>
+              </div>
             ) : (
               <Empty description="请选择两个版本进行对比" />
             )}

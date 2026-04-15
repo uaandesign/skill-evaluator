@@ -358,6 +358,55 @@ const CompareTest = () => {
     return msg;
   };
 
+  // Helper: Clean up output by removing thinking/reasoning blocks
+  const cleanOutput = (output) => {
+    if (!output || typeof output !== 'string') return output;
+
+    // 1. Remove <thinking> or 思考 blocks
+    let cleaned = output.replace(/<思考>[\s\S]*?<\/思考>/g, '');
+    cleaned = cleaned.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+    cleaned = cleaned.replace(/<(?:thinking|analysis|reasoning|reflection)[\s\S]*?<\/(?:thinking|analysis|reasoning|reflection)>/gi, '');
+
+    // 2. CRITICAL: Remove all HTML/CSS attribute code that's embedded in text
+    // This matches patterns like: vertical-align:middle;margin-left:4px" title="4px">
+    // The key is that CSS properties are followed by " and HTML attributes
+    cleaned = cleaned.replace(/(?:vertical-align|margin-left|margin-right|margin-top|margin-bottom|padding|border-radius|box-shadow|font-weight|color|background|border|width|height|display|flex|position|top|left|right|bottom|line-height|letter-spacing|text-transform|font-size)\s*:\s*[^;]*(?:;|")/gi, '');
+
+    // 3. Remove remaining HTML/CSS attributes that are still in text
+    // Matches: title="4px"> or style="..." or any attribute="value"
+    cleaned = cleaned.replace(/\s*(?:title|style|class|id|data-[\w-]+)\s*=\s*"[^"]*"\s*>/g, '');
+    cleaned = cleaned.replace(/\s*(?:title|style|class|id|data-[\w-]+)\s*=\s*"[^"]*"/g, '');
+
+    // 4. Remove stray quotes and angle brackets that are HTML debris
+    cleaned = cleaned.replace(/["'`]>[^<]*?["'`]</g, '');
+    cleaned = cleaned.replace(/^[>"'\s]+/gm, '');
+    cleaned = cleaned.replace(/[<>"'\s]+$/gm, '');
+
+    // 5. Remove lines that are pure CSS/HTML garbage
+    cleaned = cleaned.split('\n').map(line => {
+      let trimmed = line.trim();
+
+      // Remove lines that contain ONLY HTML/CSS patterns
+      if (/^[;>\s]*$/.test(trimmed)) return '';
+      if (/^[#][a-f0-9]+[;:\s]*$/.test(trimmed)) return ''; // Hex color codes
+      if (/^[0-9px;:\s]+$/.test(trimmed)) return ''; // Pure numbers/pixels
+      if (/^[&]+[a-f0-9;]+$/.test(trimmed)) return ''; // HTML entities
+
+      // Remove CSS patterns from within lines
+      trimmed = trimmed.replace(/;[a-z-]+:\s*[^;]*(?=;|$)/gi, '');
+
+      return trimmed;
+    }).filter(line => line.trim().length > 0).join('\n');
+
+    // 6. Final cleanup: Remove any remaining visual artifacts
+    cleaned = cleaned.replace(/\s+[;>]+\s+/g, ' ');
+    cleaned = cleaned.replace(/\s{2,}/g, ' '); // Multiple spaces to single
+    cleaned = cleaned.replace(/\n\n\n+/g, '\n\n'); // Multiple newlines
+    cleaned = cleaned.trim();
+
+    return cleaned;
+  };
+
   const runPanelTest = async (panelModelId, panelSkillId, setResult, setLoading, setLatency, setTokens) => {
     if (!testInput.trim() && testAttachments.length === 0) { message.warning('请先输入测试内容'); return; }
     if (!panelModelId) { message.warning('请为该面板选择模型'); return; }
@@ -376,7 +425,8 @@ const CompareTest = () => {
       });
       setLatency(Date.now() - startTime);
       setTokens(result.usage || null);
-      setResult(result.content || result.error || '(无响应)');
+      const cleanedOutput = cleanOutput(result.content || result.error || '(无响应)');
+      setResult(cleanedOutput);
     } catch (err) { setResult('错误: ' + err.message); }
     finally { setLoading(false); }
   };

@@ -43,11 +43,11 @@ export const PROVIDERS = [
     key: 'gemini', name: 'Google Gemini',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     models: [
-      { id: 'gemini-3-pro',            name: 'Gemini 3 Pro' },
-      { id: 'gemini-3-flash',          name: 'Gemini 3 Flash' },
-      { id: 'gemini-3-pro-preview',    name: 'Gemini 3 Pro Preview' },
-      { id: 'gemini-pro',              name: 'Gemini Pro' },
-      { id: 'gemini-ultra',            name: 'Gemini Ultra' },
+      { id: 'gemini-2.0-flash',        name: 'Gemini 2.0 Flash' },
+      { id: 'gemini-2.0-flash-exp',    name: 'Gemini 2.0 Flash (Exp)' },
+      { id: 'gemini-2.0-pro-exp-02-05',name: 'Gemini 2.0 Pro (Exp)' },
+      { id: 'gemini-1.5-pro',          name: 'Gemini 1.5 Pro' },
+      { id: 'gemini-1.5-flash',        name: 'Gemini 1.5 Flash' },
     ],
   },
 
@@ -193,14 +193,17 @@ export const PROVIDERS = [
   },
 
   // ─── 字节跳动 / 火山引擎 (Doubao) ────────────────────────────
+  // 注意：豆包需要配置自己的工作负载 ID（Endpoint ID），不支持通用模型名称
+  // 使用方法：
+  // 1. 在火山引擎控制台创建或找到你的工作负载 ID（如 ep-xxx-xxx）
+  // 2. 在模型字段输入完整的 Endpoint ID
+  // 3. 配置 API Key（火山引擎 API Key）
+  // 4. 点击"保存"使用
   {
-    key: 'doubao', name: '字节跳动 / 火山引擎 (Doubao)',
+    key: 'doubao', name: '字节跳动 / 火山引擎 (Doubao) ⚠️ 需要工作负载ID',
     defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     models: [
-      { id: 'doubao-seed-2.0-pro',   name: 'Doubao Seed 2.0 Pro' },
-      { id: 'doubao-seed-2.0-lite',  name: 'Doubao Seed 2.0 Lite' },
-      { id: 'doubao-seed-2.0-mini',  name: 'Doubao Seed 2.0 Mini' },
-      { id: 'doubao-seed-2.0-code',  name: 'Doubao Seed 2.0 Code' },
+      { id: 'ep-', name: '输入你的工作负载 ID（如 ep-20250101xxx-xxxxx）' },
     ],
   },
 ];

@@ -337,7 +337,7 @@ const VersionManager = () => {
                   border: '1px solid #e5e7eb',
                   boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
                 }}
-                bodyStyle={{ overflowY: 'auto', padding: '16px', height: 'calc(100% - 57px)' }}
+                styles={{ body: { overflowY: 'auto', padding: '16px', height: 'calc(100% - 57px)' } }}
               >
                 <Timeline
                   items={selectedSkill.versions.map((version, index) => ({
@@ -567,7 +567,7 @@ const VersionManager = () => {
             onCancel={() => setCompareModalVisible(false)}
             width={1000}
             footer={null}
-            bodyStyle={{ borderRadius: '12px' }}
+            styles={{ body: { borderRadius: '12px' } }}
           >
             <Space
               style={{
@@ -641,7 +641,7 @@ const VersionManager = () => {
             }}
             width={1200}
             footer={null}
-            bodyStyle={{ borderRadius: '12px' }}
+            styles={{ body: { borderRadius: '12px' } }}
           >
             <Tabs
               items={[

@@ -273,7 +273,7 @@ const ModelConfig = () => {
                       borderLeft: '4px solid #111827',
                       backgroundColor: '#fafafa',
                     }}
-                    bodyStyle={{ padding: '12px' }}
+                    styles={{ body: { padding: '12px' } }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ flex: 1 }}>
@@ -339,7 +339,7 @@ const ModelConfig = () => {
                     borderTop: '3px solid #111827',
                     textAlign: 'center',
                   }}
-                  bodyStyle={{ padding: '12px' }}
+                  styles={{ body: { padding: '12px' } }}
                 >
                   <div style={{ fontSize: '12px', marginBottom: '8px', color: '#666' }}>
                     {config.displayName}

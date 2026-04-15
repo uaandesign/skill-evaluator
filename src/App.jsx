@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout, Menu, ConfigProvider } from 'antd';
+import { Layout, Menu, ConfigProvider, App as AntApp } from 'antd';
 import { useStore } from './store';
 import CompareTest from './components/CompareTest';
 import ConfigCenter from './components/ConfigCenter';
@@ -94,7 +94,8 @@ const App = () => {
         },
       }}
     >
-      <Layout style={{ height: '100vh', background: '#f4f6f9' }}>
+      <AntApp>
+        <Layout style={{ height: '100vh', background: '#f4f6f9' }}>
         <Header
           style={{
             height: '52px', lineHeight: '52px', padding: '0 24px',
@@ -104,19 +105,21 @@ const App = () => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{
-              width: '30px', height: '30px', borderRadius: '10px',
-              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#fff', fontSize: '12px', fontWeight: 700, letterSpacing: '-0.5px',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-            }}>SE</div>
+            <img
+              src="/huo.svg"
+              alt="VolcD"
+              style={{
+                width: '30px',
+                height: '30px',
+                objectFit: 'contain'
+              }}
+            />
             <span style={{ fontSize: '14px', fontWeight: 600, color: '#111827', letterSpacing: '-0.2px' }}>Skill Evaluator</span>
             <div style={{ width: '1px', height: '16px', background: '#e5e7eb' }} />
             <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 400 }}>{getTabTitle()}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '10px', color: '#9ca3af', background: '#f8fafc', padding: '2px 8px', borderRadius: '20px', fontWeight: 500, border: '1px solid #e5e7eb', letterSpacing: '0.02em' }}>v2.0</span>
+            <span style={{ fontSize: '11px', color: '#6b7280', background: '#f3f4f6', padding: '3px 10px', borderRadius: '6px', fontWeight: 500, border: '1px solid #e5e7eb', letterSpacing: '0.03em', lineHeight: '18px' }}>v2.0</span>
           </div>
         </Header>
 
@@ -156,6 +159,7 @@ const App = () => {
           </Content>
         </Layout>
       </Layout>
+      </AntApp>
     </ConfigProvider>
   );
 };

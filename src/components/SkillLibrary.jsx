@@ -24,6 +24,7 @@ import {
   Drawer,
   Form,
 } from 'antd';
+import { CheckCircleOutlined, FileTextOutlined } from '@ant-design/icons';
 import * as Diff from 'diff';
 import { useStore } from '../store';
 import { detectFormat } from '../utils/skillParser';
@@ -455,7 +456,7 @@ const SkillLibrary = () => {
           height: '100%',
           background: activeSkillId === skill.id ? '#fafcff' : '#fff',
         }}
-        bodyStyle={{ padding: '16px 18px' }}
+        styles={{ body: { padding: '16px 18px' } }}
       >
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
@@ -473,7 +474,7 @@ const SkillLibrary = () => {
           </div>
           {activeSkillId === skill.id && (
             <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', padding: '2px 7px', borderRadius: '20px', border: '1px solid #bfdbfe' }}>
-              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#2563eb', animation: 'gentlePulse 2s infinite' }} />
+              <CheckCircleOutlined style={{ fontSize: '12px', color: '#2563eb' }} />
               <span style={{ fontSize: '10px', color: '#2563eb', fontWeight: 600 }}>使用中</span>
             </div>
           )}
@@ -488,9 +489,9 @@ const SkillLibrary = () => {
         </Paragraph>
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
           <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '3px' }}>
-            <span style={{ fontSize: '10px' }}>⊙</span>
+            <FileTextOutlined style={{ fontSize: '10px' }} />
             {skill.versions?.length || 1} 个版本
           </span>
           <span style={{ fontSize: '11px', color: '#94a3b8' }}>
@@ -584,7 +585,7 @@ const SkillLibrary = () => {
         </div>
 
         {/* Search + filter row */}
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <Search
             placeholder="搜索技能名称或描述..."
             value={searchText}
@@ -603,10 +604,10 @@ const SkillLibrary = () => {
               { label: 'Prompt Template', value: 'prompt' },
             ]}
           />
-          <Button.Group>
+          <div style={{ display: 'flex', gap: '12px' }}>
             <Button type={viewMode === 'grid' ? 'primary' : 'default'} onClick={() => setViewMode('grid')} title="卡片视图">▦</Button>
             <Button type={viewMode === 'list' ? 'primary' : 'default'} onClick={() => setViewMode('list')} title="列表视图">☰</Button>
-          </Button.Group>
+          </div>
         </div>
       </div>
 
@@ -626,7 +627,7 @@ const SkillLibrary = () => {
           </Empty>
         </Card>
       ) : viewMode === 'grid' ? (
-        <Row gutter={[16, 16]}>
+        <Row gutter={[24, 24]}>
           {filteredSkills.map(renderSkillCard)}
         </Row>
       ) : (

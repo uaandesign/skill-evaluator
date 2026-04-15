@@ -225,7 +225,7 @@ async function extractTextFromDocxBuffer(buffer) {
       }
 
       return xml
-        .replace(/<w:br[^/]*/>/gi, '\n')
+        .replace(/<w:br[^>]*>/gi, '\n')
         .replace(/<\/w:p>/gi, '\n')
         .replace(/<[^>]+>/g, '')
         .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -461,26 +461,40 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    if (!['openai', 'anthropic', 'doubao', 'qwen', 'gemini', 'deepseek'].includes(provider)) {
+    // All supported providers
+    const CHAT_PROVIDER_DEFAULTS = {
+      openai:   'https://api.openai.com/v1',
+      doubao:   'https://ark.cn-beijing.volces.com/api/v3',
+      qwen:     'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      deepseek: 'https://api.deepseek.com/v1',
+      xai:      'https://api.x.ai/v1',
+      mistral:  'https://api.mistral.ai/v1',
+      groq:     'https://api.groq.com/openai/v1',
+      nvidia:   'https://integrate.api.nvidia.com/v1',
+      moonshot: 'https://api.moonshot.cn/v1',
+      zhipu:    'https://open.bigmodel.cn/api/paas/v4',
+      minimax:  'https://api.minimax.chat/v1',
+      venice:   'https://api.venice.ai/api/v1',
+      bedrock:  'https://bedrock-runtime.us-east-1.amazonaws.com/v1',
+    };
+    const ALL_PROVIDERS = ['anthropic', 'gemini', ...Object.keys(CHAT_PROVIDER_DEFAULTS)];
+
+    if (!ALL_PROVIDERS.includes(provider)) {
       return res.status(400).json({
-        error: 'Invalid provider. Must be one of: openai, anthropic, doubao, qwen, gemini, deepseek',
+        error: `Invalid provider. Must be one of: ${ALL_PROVIDERS.join(', ')}`,
       });
     }
 
     let response;
 
-    if (provider === 'openai') {
-      response = await callOpenAI(apiKey, model, messages, systemPrompt, tools, baseUrl);
-    } else if (provider === 'anthropic') {
+    if (provider === 'anthropic') {
       response = await callAnthropic(apiKey, model, messages, systemPrompt, tools);
-    } else if (provider === 'doubao') {
-      response = await callDoubao(apiKey, model, messages, systemPrompt, tools, baseUrl);
-    } else if (provider === 'qwen') {
-      response = await callQwen(apiKey, model, messages, systemPrompt, tools, baseUrl);
     } else if (provider === 'gemini') {
       response = await callGemini(apiKey, model, messages, systemPrompt, tools);
-    } else if (provider === 'deepseek') {
-      response = await callDeepSeek(apiKey, model, messages, systemPrompt, tools, baseUrl);
+    } else {
+      // All other providers use OpenAI-compatible API
+      const resolvedBaseUrl = baseUrl || CHAT_PROVIDER_DEFAULTS[provider];
+      response = await callOpenAI(apiKey, model, messages, systemPrompt, tools, resolvedBaseUrl);
     }
 
     res.json(response);
@@ -1131,13 +1145,8 @@ async function fetchWithRetry(url, options, {
 }
 
 async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemPrompt = null) {
-
-  // ── Anthropic / Claude ────────────────────────────────────────────────────
-  if (!modelConfig || modelConfig.provider === 'anthropic') {
-    const apiKey = modelConfig?.apiKey || process.env.ANTHROPIC_API_KEY;
-    const model  = modelConfig?.model  || 'claude-sonnet-4-6';
-    if (!apiKey) throw new Error('Anthropic API key 未配置，请在配置中心添加 Claude 模型或设置 ANTHROPIC_API_KEY 环境变量');
-
+  // Helper: call Anthropic/Claude (used as primary or fallback)
+  async function callClaude(apiKey, model, userPrompt, maxTokens, systemPrompt) {
     const body = {
       model,
       max_tokens: maxTokens,
@@ -1150,10 +1159,18 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify(body),
-    }, { providerLabel: 'Anthropic' });
+    }, { providerLabel: 'Anthropic', requestTimeout: 90_000, maxRetries: 3 });
 
     const data = await resp.json();
     return data.content?.[0]?.text || '';
+  }
+
+  // ── Anthropic / Claude (primary or fallback) ────────────────────────────
+  if (!modelConfig || modelConfig.provider === 'anthropic') {
+    const apiKey = modelConfig?.apiKey || process.env.ANTHROPIC_API_KEY;
+    const model  = modelConfig?.model  || 'claude-sonnet-4-6';
+    if (!apiKey) throw new Error('Anthropic API key 未配置，请在配置中心添加 Claude 模型或设置 ANTHROPIC_API_KEY 环境变量');
+    return await callClaude(apiKey, model, userPrompt, maxTokens, systemPrompt);
   }
 
   // ── OpenAI-compatible providers ──────────────────────────────────────────
@@ -1189,19 +1206,39 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
     // OpenAI supports seed for deterministic outputs
     if (modelConfig.provider === 'openai') reqBody.seed = 42;
 
-    // Qwen / Doubao: increase per-attempt timeout to 120 s (prone to slowness)
-    const providerTimeout = ['qwen', 'doubao', 'minimax', 'zhipu'].includes(modelConfig.provider)
-      ? 120_000
-      : 90_000;
+    // Qwen / Doubao / MiniMax / Zhipu: increase per-attempt timeout to 180s (prone to slowness)
+    // For these slow providers, also implement fallback to Claude if they fail
+    const isSlowProvider = ['qwen', 'doubao', 'minimax', 'zhipu'].includes(modelConfig.provider);
+    const providerTimeout = isSlowProvider ? 180_000 : 90_000; // Increased from 150s to 180s
 
-    const resp = await fetchWithRetry(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${modelConfig.apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify(reqBody),
-    }, { providerLabel: modelConfig.provider, requestTimeout: providerTimeout, maxRetries: 4 });
+    try {
+      const resp = await fetchWithRetry(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${modelConfig.apiKey}`, 'content-type': 'application/json' },
+        body: JSON.stringify(reqBody),
+      }, { providerLabel: modelConfig.provider, requestTimeout: providerTimeout, maxRetries: 2 });
 
-    const data = await resp.json();
-    return data.choices?.[0]?.message?.content || '';
+      const data = await resp.json();
+      return data.choices?.[0]?.message?.content || '';
+    } catch (err) {
+      // For slow providers, if they timeout, try Claude as fallback
+      if (isSlowProvider && (err.message.includes('超时') || err.message.includes('timeout'))) {
+        console.log(`[callLLMForEval] ${modelConfig.provider} 超时，尝试使用 Claude 备用模型...`);
+        const claudeApiKey = process.env.ANTHROPIC_API_KEY;
+        if (claudeApiKey) {
+          try {
+            return await callClaude(claudeApiKey, 'claude-sonnet-4-6', userPrompt, maxTokens, systemPrompt);
+          } catch (fallbackErr) {
+            console.error('[callLLMForEval] Claude 备用模型也失败:', fallbackErr.message);
+            throw err; // re-throw original error
+          }
+        } else {
+          console.warn('[callLLMForEval] 无 Anthropic API key，无法使用备用模型');
+          throw err;
+        }
+      }
+      throw err;
+    }
   }
 
   // ── Google Gemini ─────────────────────────────────────────────────────────
@@ -1604,7 +1641,12 @@ app.post('/api/evaluate-skill', async (req, res) => {
   try {
     const { skill_content, test_cases, model_config, skill_category, volcano_rule_skill, skill_name } = req.body;
 
-    if (!skill_content) return res.status(400).json({ error: '缺少 skill_content 参数' });
+    console.log(`[evaluate-skill] 收到请求 — provider: ${model_config?.provider}, model: ${model_config?.model}, hasContent: ${!!skill_content}, casesType: ${typeof test_cases}, category: ${skill_category || 'none'}`);
+
+    if (!skill_content) {
+      console.warn('[evaluate-skill] 400: 缺少 skill_content');
+      return res.status(400).json({ error: '缺少 skill_content 参数' });
+    }
 
     // ── Parse test cases ────────────────────────────────────────────────────
     let rawCases = test_cases;
@@ -1790,25 +1832,72 @@ ${resultsForJudge}
 3. passed字段必须严格按照上述通过/失败判定标准判断
 4. optimization_suggestions的priority必须按照上述阈值确定`;
 
+    // ── Phase 2: Judge LLM evaluation with improved error handling ────────
     let judgeResponseText;
+    let judgeCallError = null;
+
     try {
+      console.log(`[evaluate-skill] Phase 2 开始调用 Judge 模型 (${model_config?.provider}/${model_config?.model})...`);
+      const judgeStartTime = Date.now();
       judgeResponseText = await callLLMForEval(model_config || null, judgePrompt, 5000);
+      const judgeDuration = Date.now() - judgeStartTime;
+      console.log(`[evaluate-skill] Judge 调用成功，耗时 ${judgeDuration}ms，响应长度: ${judgeResponseText.length} 字符`);
     } catch (llmError) {
-      return res.status(400).json({ error: `Judge 模型调用失败: ${llmError.message}` });
+      judgeCallError = llmError.message;
+      console.error(`[evaluate-skill] Judge 模型调用失败 (${model_config?.provider}/${model_config?.model}):`, llmError.message);
+
+      // Attempt fallback to Claude if Judge model fails
+      if (model_config?.provider !== 'anthropic') {
+        console.log('[evaluate-skill] 尝试使用 Claude 作为 Judge 备用模型...');
+        try {
+          const claudeApiKey = process.env.ANTHROPIC_API_KEY;
+          if (claudeApiKey) {
+            judgeResponseText = await callLLMForEval(
+              { provider: 'anthropic', apiKey: claudeApiKey, model: 'claude-sonnet-4-6' },
+              judgePrompt,
+              5000
+            );
+            console.log('[evaluate-skill] Claude 备用 Judge 调用成功');
+            judgeCallError = null; // Clear error since fallback succeeded
+          } else {
+            console.warn('[evaluate-skill] 无 Anthropic API key，无法使用 Claude 备用 Judge');
+          }
+        } catch (fallbackErr) {
+          console.error('[evaluate-skill] Claude 备用 Judge 也失败:', fallbackErr.message);
+          // Keep original error, don't throw yet
+        }
+      }
     }
 
-    // ── Parse judge response ───────────────────────────────────────────────
+    // ── Parse judge response with improved error handling ──────────────────
     let evaluationResult;
+    if (judgeCallError && !judgeResponseText) {
+      // Judge completely failed and no fallback
+      console.error('[evaluate-skill] Judge 评估完全失败，无法继续。原因:', judgeCallError);
+      return res.status(400).json({
+        error: `Judge 模型调用失败: ${judgeCallError}`,
+        suggestion: '请检查网络连通性，或切换到其他可用的 LLM 模型'
+      });
+    }
+
     try {
       const jsonMatch = judgeResponseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('响应中未找到JSON');
-      evaluationResult = JSON.parse(jsonMatch[0]);
+      if (!jsonMatch) {
+        console.error('[evaluate-skill] Judge 响应中未找到JSON:', judgeResponseText.substring(0, 300));
+        throw new Error(`响应中未找到JSON。响应内容: ${judgeResponseText.substring(0, 200)}`);
+      }
+
+      const jsonString = jsonMatch[0];
+      console.log(`[evaluate-skill] 解析 Judge JSON，长度: ${jsonString.length} 字符`);
+      evaluationResult = JSON.parse(jsonString);
+      console.log(`[evaluate-skill] Judge JSON 解析成功，包含字段: ${Object.keys(evaluationResult).join(', ')}`);
     } catch (parseError) {
-      console.error('Judge 响应解析失败:', judgeResponseText.substring(0, 500));
+      console.error('[evaluate-skill] Judge 响应解析失败，响应前500字符:', judgeResponseText.substring(0, 500));
       return res.status(500).json({
         error: '评估结果解析失败',
         details: parseError.message,
         raw: judgeResponseText.substring(0, 500),
+        suggestion: 'Judge 模型返回的响应格式不正确，请稍后重试或切换模型'
       });
     }
 

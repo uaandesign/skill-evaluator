@@ -616,7 +616,7 @@ ${skillContent || '(空，尚未创建)'}
           {testResult && !testLoading && (
             <Card
               style={{ borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
-              bodyStyle={{ padding: '16px' }}
+              styles={{ body: { padding: '16px' } }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <Text strong>模型输出</Text>

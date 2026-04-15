@@ -103,8 +103,54 @@ function RawView({ output }) {
 function MarkdownPreview({ output }) {
   const html = useMemo(() => {
     let text = output;
-    // Escape HTML
+
+    // STEP 1: Escape all HTML first so no user content is interpreted as HTML
     text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // STEP 2: Apply visualization enhancements to the ESCAPED (plain text) content FIRST,
+    // using placeholders so they won't be affected by subsequent markdown replacements.
+    // This must happen before generating any HTML tags with inline styles,
+    // otherwise the inline style content would be re-matched by these regexes.
+    const placeholders = [];
+    const addPlaceholder = (html) => {
+      const id = `__VIZ_PLACEHOLDER_${placeholders.length}__`;
+      placeholders.push(html);
+      return id;
+    };
+
+    // Color swatch: detect hex colors like #3B82F6
+    text = text.replace(/(#[0-9A-Fa-f]{6})\b/g, (match) => {
+      return addPlaceholder(
+        `<span style="display:inline-flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:14px;background:${match};border-radius:3px;border:1px solid #d1d5db;vertical-align:middle"></span><code style="background:#f1f5f9;padding:1px 4px;border-radius:2px;font-size:11px">${match}</code></span>`
+      );
+    });
+    // Font-size visualization
+    text = text.replace(/font-size:\s*(\d+)px/gi, (match, size) => {
+      return addPlaceholder(
+        `${match} <span style="font-size:${size}px;color:#374151;background:#f9fafb;padding:2px 8px;border:1px dashed #d1d5db;border-radius:3px;margin-left:6px">Aa</span>`
+      );
+    });
+    // Spacing visualization
+    text = text.replace(/(spacing|padding|margin|gap):\s*(\d+)px/gi, (match, prop, size) => {
+      const w = Math.min(parseInt(size, 10), 60);
+      return addPlaceholder(
+        `${match} <span style="display:inline-block;width:${w}px;height:10px;background:#dbeafe;border:1px solid #93c5fd;border-radius:2px;vertical-align:middle;margin-left:4px" title="${size}px"></span>`
+      );
+    });
+    // Border-radius visualization
+    text = text.replace(/border-radius:\s*(\d+)px/gi, (match, radius) => {
+      return addPlaceholder(
+        `${match} <span style="display:inline-block;width:24px;height:24px;background:#f3f4f6;border:2px solid #374151;border-radius:${radius}px;vertical-align:middle;margin-left:4px"></span>`
+      );
+    });
+
+    // STEP 3: Now apply Markdown formatting (headings, bold, code blocks, etc.)
+    // Code blocks MUST be processed before inline code to avoid conflicts
+    text = text.replace(/```[\w]*\n([\s\S]*?)```/g, (_m, code) => {
+      return addPlaceholder(
+        `<pre style="background:#0f172a;color:#e2e8f0;padding:12px;border-radius:6px;font-size:12px;font-family:monospace;overflow:auto;white-space:pre-wrap">${code}</pre>`
+      );
+    });
     // Headings
     text = text.replace(/^### (.+)$/gm, '<h3 style="font-size:15px;font-weight:700;color:#111827;margin:16px 0 8px">$1</h3>');
     text = text.replace(/^## (.+)$/gm, '<h2 style="font-size:17px;font-weight:700;color:#111827;margin:20px 0 10px;border-bottom:1px solid #e5e7eb;padding-bottom:6px">$1</h2>');
@@ -114,31 +160,18 @@ function MarkdownPreview({ output }) {
     text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
     // Inline code
     text = text.replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:2px 6px;border-radius:3px;font-size:12px;font-family:monospace;color:#374151">$1</code>');
-    // Code blocks
-    text = text.replace(/```[\w]*\n([\s\S]*?)```/g, '<pre style="background:#0f172a;color:#e2e8f0;padding:12px;border-radius:6px;font-size:12px;font-family:monospace;overflow:auto;white-space:pre-wrap">$1</pre>');
     // Lists
     text = text.replace(/^- (.+)$/gm, '<div style="padding-left:16px;margin:3px 0"><span style="color:#6b7280;margin-right:6px">·</span>$1</div>');
-    // Color swatch: detect hex colors like #3B82F6
-    text = text.replace(/(#[0-9A-Fa-f]{6})\b/g, (match) => {
-      return `<span style="display:inline-flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:14px;background:${match};border-radius:3px;border:1px solid #d1d5db;vertical-align:middle"></span><code style="background:#f1f5f9;padding:1px 4px;border-radius:2px;font-size:11px">${match}</code></span>`;
-    });
-    // Font-size visualization: detect patterns like font-size: 16px or fontSize: 16
-    text = text.replace(/font-size:\s*(\d+)px/gi, (match, size) => {
-      return `${match} <span style="font-size:${size}px;color:#374151;background:#f9fafb;padding:2px 8px;border:1px dashed #d1d5db;border-radius:3px;margin-left:6px">Aa</span>`;
-    });
-    // Spacing visualization: detect spacing: 8px or padding: 12px
-    text = text.replace(/(spacing|padding|margin|gap):\s*(\d+)px/gi, (match, prop, size) => {
-      const w = Math.min(parseInt(size, 10), 60);
-      return `${match} <span style="display:inline-block;width:${w}px;height:10px;background:#dbeafe;border:1px solid #93c5fd;border-radius:2px;vertical-align:middle;margin-left:4px" title="${size}px"></span>`;
-    });
-    // Border-radius visualization
-    text = text.replace(/border-radius:\s*(\d+)px/gi, (match, radius) => {
-      return `${match} <span style="display:inline-block;width:24px;height:24px;background:#f3f4f6;border:2px solid #374151;border-radius:${radius}px;vertical-align:middle;margin-left:4px"></span>`;
-    });
     // Paragraphs (double newlines)
     text = text.replace(/\n\n/g, '<div style="height:12px"></div>');
     // Single newlines
     text = text.replace(/\n/g, '<br/>');
+
+    // STEP 4: Restore all placeholders with their actual HTML
+    placeholders.forEach((placeholder, i) => {
+      text = text.replace(`__VIZ_PLACEHOLDER_${i}__`, () => placeholder);
+    });
+
     return text;
   }, [output]);
 

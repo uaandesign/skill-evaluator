@@ -195,6 +195,7 @@ const ConfigCenter = () => {
   const [providerBaseUrls, setProviderBaseUrls] = useState({});
   const [selectedModels, setSelectedModels] = useState({});
   const [testingId, setTestingId] = useState(null);
+  const [advancedMode, setAdvancedMode] = useState(false);
 
   // Active section
   const [activeSection, setActiveSection] = useState('models');
@@ -298,10 +299,13 @@ const ConfigCenter = () => {
         ),
         children: (
           <div style={{ padding: '16px 0' }}>
-            <div style={{ marginBottom: '16px' }}>
-              <span style={fieldLabel}>API Base URL</span>
-              <Input value={currentUrl} onChange={(e) => setProviderBaseUrls({ ...providerBaseUrls, [provider.key]: e.target.value })} placeholder={provider.defaultBaseUrl} />
-            </div>
+            {advancedMode && (
+              <div style={{ marginBottom: '16px' }}>
+                <span style={fieldLabel}>API Base URL（高级）</span>
+                <Input value={currentUrl} onChange={(e) => setProviderBaseUrls({ ...providerBaseUrls, [provider.key]: e.target.value })} placeholder={provider.defaultBaseUrl} size="small" />
+                <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>默认: {provider.defaultBaseUrl}</div>
+              </div>
+            )}
             <div style={{ marginBottom: '16px' }}>
               <span style={fieldLabel}>API Key</span>
               <Input.Password value={currentKey} onChange={(e) => setProviderApiKeys({ ...providerApiKeys, [provider.key]: e.target.value })} placeholder="输入 API Key" />
@@ -347,6 +351,10 @@ const ConfigCenter = () => {
     return (
       <div>
         {sectionTitle('模型供应商配置', '统一管理各厂商 API Key、接口地址、模型选择，配置一次全平台生效')}
+        <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Switch checked={advancedMode} onChange={setAdvancedMode} size="small" />
+          <span style={{ fontSize: '13px', color: '#6b7280' }}>高级模式（显示 API Base URL 配置）</span>
+        </div>
         <Collapse items={collapseItems} accordion={false} />
 
         {modelConfigs.length > 0 && (

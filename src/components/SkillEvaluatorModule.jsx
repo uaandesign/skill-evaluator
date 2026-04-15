@@ -397,40 +397,64 @@ export default function SkillEvaluatorModule() {
 
   const renderEvaluationTab = () => {
     const { summary, dimensional_scores, weakness_analysis } = results;
+
+    // Azure AI Foundry style color mapping
+    const getScoreColor = (score) => {
+      if (score >= 80) return '#10b981';  // green
+      if (score >= 60) return '#f59e0b';  // amber
+      return '#ef4444';  // red
+    };
+
     return (
       <div>
-        {/* Header row: badge + export button */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          {results.evaluation_mode === 'real' ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6 }}>
-              <span style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>真实执行模式</span>
-              <span style={{ fontSize: 11, color: '#4ade80' }}>·</span>
-              <span style={{ fontSize: 11, color: '#374151' }}>由 {selectedModel?.displayName || '配置模型'} 基于 SKILL.md 真实运行后评分</span>
-            </div>
-          ) : <div />}
+        {/* Top info bar - Azure Foundry style */}
+        <div style={{
+          background: 'linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)',
+          border: '1px solid #e5e7eb',
+          borderRadius: '8px 8px 0 0',
+          padding: '16px 20px',
+          marginBottom: 0,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {results.evaluation_mode === 'real' && (
+              <>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>
+                  真实执行评估 · {selectedModel?.displayName || '配置模型'}
+                </span>
+              </>
+            )}
+          </div>
           <Button
             size="small"
-            style={{ fontSize: 11, borderColor: '#374151', color: '#374151' }}
+            style={{ fontSize: 11, borderColor: '#d1d5db', color: '#374151' }}
             loading={exporting}
             onClick={handleExportReport}
           >
-            {exporting ? '导出中...' : '导出报告 (MD)'}
+            {exporting ? '导出中...' : '📥 导出报告'}
           </Button>
         </div>
 
-        {/* Summary cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        {/* Summary cards - enhanced with Azure style */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, padding: '20px 0' }}>
           {[
-            { label: '综合评分', value: summary?.overall_score ?? '—', sub: '/ 100' },
+            { label: '综合评分', value: summary?.overall_score ?? '—', sub: '/ 100', color: getScoreColor(summary?.overall_score) },
             { label: '质量等级', value: summary?.overall_score != null ? gradeFromScore(summary.overall_score) : '—', sub: '' },
             { label: '测试通过', value: `${summary?.passed_tests ?? '—'}`, sub: `/ ${summary?.total_tests ?? '—'}` },
             { label: '通过率',   value: summary?.pass_rate != null ? `${Math.round(summary.pass_rate * 100)}%` : '—', sub: '' },
           ].map((c) => (
-            <div key={c.label} style={S.card}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>{c.label}</div>
-              <div style={{ fontSize: 26, fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>
+            <div key={c.label} style={{
+              ...S.card,
+              borderLeft: `4px solid ${c.color || '#d1d5db'}`,
+              background: '#fff'
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>{c.label}</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: c.color || '#111827', lineHeight: 1.2 }}>
                 {c.value}
-                {c.sub && <span style={{ fontSize: 13, color: '#6b7280', fontWeight: 400, marginLeft: 2 }}>{c.sub}</span>}
+                {c.sub && <span style={{ fontSize: 13, color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>{c.sub}</span>}
               </div>
             </div>
           ))}
@@ -558,12 +582,67 @@ export default function SkillEvaluatorModule() {
           </div>
         )}
 
+        {/* Optimization suggestions */}
+        {results.optimization_suggestions?.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 12 }}>优化建议</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {results.optimization_suggestions.slice(0, 5).map((sug, i) => {
+                const priorityColors = {
+                  '高': { bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' },
+                  'high': { bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' },
+                  '中': { bg: '#fff7ed', border: '#fed7aa', text: '#92400e' },
+                  'medium': { bg: '#fff7ed', border: '#fed7aa', text: '#92400e' },
+                  '低': { bg: '#f9fafb', border: '#e5e7eb', text: '#6b7280' },
+                  'low': { bg: '#f9fafb', border: '#e5e7eb', text: '#6b7280' },
+                };
+                const priorityColor = priorityColors[sug.priority] || priorityColors['中'];
+                return (
+                  <div key={i} style={{
+                    ...S.card,
+                    padding: 12,
+                    background: priorityColor.bg,
+                    border: `1px solid ${priorityColor.border}`,
+                    marginBottom: 0
+                  }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 6 }}>
+                      <span style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 3,
+                        background: '#fff',
+                        color: priorityColor.text,
+                        border: `1px solid ${priorityColor.border}`,
+                        flexShrink: 0
+                      }}>{sug.priority}优先</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#374151', flex: 1 }}>{sug.dimension || '通用'}</span>
+                      {sug.expected_impact && <span style={{ fontSize: 10, color: '#6b7280' }}>+{sug.expected_impact}</span>}
+                    </div>
+                    {sug.issue && <div style={{ fontSize: 11, color: '#4b5563', marginBottom: 4, lineHeight: 1.5 }}>{sug.issue}</div>}
+                    {(sug.suggestion || sug.fix) && (
+                      <div style={{ fontSize: 11, color: '#374151', lineHeight: 1.5, paddingTop: 4, borderTop: `1px solid ${priorityColor.border}` }}>
+                        <strong>建议：</strong> {sug.suggestion || sug.fix}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {results.optimization_suggestions.length > 5 && (
+                <div style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', padding: 8 }}>
+                  还有 {results.optimization_suggestions.length - 5} 条建议，查看详细报告了解更多
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Weakness analysis */}
-        {weakness_analysis && (
+        {weakness_analysis && Object.keys(weakness_analysis).length > 0 && (
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>弱点分析</div>
             <div style={{ ...S.card, background: '#fafafa' }}>
-              {weakness_analysis.lowest_dimension && <div style={{ marginBottom: 8, fontSize: 12 }}><span style={{ fontWeight: 600, color: '#6b7280' }}>最低得分维度：</span><span style={{ color: '#111827' }}>{weakness_analysis.lowest_dimension}</span></div>}
+              {weakness_analysis.lowest_dimension && <div style={{ marginBottom: 8, fontSize: 12 }}><span style={{ fontWeight: 600, color: '#6b7280' }}>最低得分维度：</span><span style={{ color: '#111827', fontWeight: 600 }}>{weakness_analysis.lowest_dimension}</span></div>}
               {weakness_analysis.common_failures?.length > 0 && (
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>常见失败模式</div>

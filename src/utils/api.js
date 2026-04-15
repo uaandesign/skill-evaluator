@@ -14,13 +14,23 @@ export async function chatWithModel({ provider, apiKey, model, messages, systemP
       baseUrl: baseUrl || undefined,
     };
 
-    const response = await fetch(`${API_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
+    // Add 300s timeout for slow models (Qwen, Doubao, etc.)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300_000);
+
+    let response;
+    try {
+      response = await fetch(`${API_BASE_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       throw new Error(`API error: ${response.status} ${response.statusText}`);

@@ -92,7 +92,23 @@ const SkillEditor = () => {
       } else {
         // Send to backend for PDF / DOCX extraction
         const ab = await file.arrayBuffer();
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+        // Use safe base64 encoding for large files (avoid stack overflow)
+        let b64;
+        try {
+          // Try the optimized method first
+          const bytes = new Uint8Array(ab);
+          const binaryString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+          b64 = btoa(binaryString);
+        } catch (e) {
+          // Fallback: chunk-based encoding for very large files
+          const bytes = new Uint8Array(ab);
+          const chunks = [];
+          const chunkSize = 8192;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            chunks.push(String.fromCharCode.apply(null, bytes.slice(i, i + chunkSize)));
+          }
+          b64 = btoa(chunks.join(''));
+        }
         const resp = await fetch('/api/extract-text', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -254,24 +270,41 @@ const SkillEditor = () => {
     setRunDuration(null);
 
     try {
-      const resp = await fetch('/api/run-skill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          skill_content: editorContent,
-          user_input: userInput,
-          model_config: selectedModel,
-        }),
-      });
-      const data = await resp.json();
-      if (data.error) {
-        setRunError(data.error);
-        message.error(data.error);
-      } else {
-        setRunOutput(data.output || '');
-        setRunDuration(data.duration_ms || null);
-        setRunModelLabel(data.model || '');
-        message.success('技能运行成功');
+      // Add 300s timeout for browser fetch (supports slow models like Qwen)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300_000); // 300s timeout
+
+      try {
+        const resp = await fetch('/api/run-skill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            skill_content: editorContent,
+            user_input: userInput,
+            model_config: selectedModel,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        const data = await resp.json();
+        if (data.error) {
+          setRunError(data.error);
+          message.error(data.error);
+        } else {
+          setRunOutput(data.output || '');
+          setRunDuration(data.duration_ms || null);
+          setRunModelLabel(data.model || '');
+          message.success('技能运行成功');
+        }
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
+        if (fetchErr.name === 'AbortError') {
+          setRunError('请求超时（300秒）。模型响应太慢，请检查网络或换用其他模型');
+          message.error('请求超时（300秒）。模型响应太慢，请检查网络或换用其他模型');
+        } else {
+          throw fetchErr;
+        }
       }
     } catch (err) {
       setRunError(err.message || '请求失败');
@@ -420,7 +453,7 @@ const SkillEditor = () => {
                     fontSize: 12,
                     lineHeight: 1.6,
                     minHeight: 380,
-                    background: '#fafafa',
+                    background: '#ffffff',
                     border: '1px solid #e5e7eb',
                     borderRadius: 6,
                   }}

@@ -24,7 +24,7 @@ import {
   Drawer,
   Form,
 } from 'antd';
-import { CheckCircleOutlined, FileTextOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, FileTextOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import * as Diff from 'diff';
 import { useStore } from '../store';
 import { detectFormat } from '../utils/skillParser';
@@ -586,13 +586,15 @@ const SkillLibrary = () => {
 
         {/* Search + filter row */}
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <Search
-            placeholder="搜索技能名称或描述..."
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            allowClear
-            style={{ flex: 1, maxWidth: '360px' }}
-          />
+          <div style={{ flex: 1, maxWidth: '360px' }}>
+            <Search
+              placeholder="搜索技能名称或描述..."
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              allowClear
+              style={{ width: '100%' }}
+            />
+          </div>
           <Select
             value={filterFormat}
             onChange={setFilterFormat}
@@ -605,8 +607,8 @@ const SkillLibrary = () => {
             ]}
           />
           <div style={{ display: 'flex', gap: '12px' }}>
-            <Button type={viewMode === 'grid' ? 'primary' : 'default'} onClick={() => setViewMode('grid')} title="卡片视图">▦</Button>
-            <Button type={viewMode === 'list' ? 'primary' : 'default'} onClick={() => setViewMode('list')} title="列表视图">☰</Button>
+            <Button type={viewMode === 'grid' ? 'primary' : 'default'} onClick={() => setViewMode('grid')} title="卡片视图" icon={<AppstoreOutlined />} />
+            <Button type={viewMode === 'list' ? 'primary' : 'default'} onClick={() => setViewMode('list')} title="列表视图" icon={<UnorderedListOutlined />} />
           </div>
         </div>
       </div>

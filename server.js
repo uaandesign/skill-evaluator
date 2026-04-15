@@ -2206,6 +2206,256 @@ app.post('/api/export-report', (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// HISTORY API ENDPOINTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// In-memory history store (will be persisted to file in production)
+const historyData = {
+  testHistory: [],
+  evalHistory: [],
+};
+
+// Helper: Convert ISO string to Date
+function parseDate(isoString) {
+  return new Date(isoString);
+}
+
+// Helper: Check if record is within 7 days
+function isWithin7Days(timestamp) {
+  const recordDate = typeof timestamp === 'string' ? parseDate(timestamp) : timestamp;
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  return recordDate >= sevenDaysAgo;
+}
+
+// Helper: Clean up old records (7+ days)
+function cleanupOldRecords() {
+  historyData.testHistory = historyData.testHistory.filter(r => isWithin7Days(r.timestamp));
+  historyData.evalHistory = historyData.evalHistory.filter(r => isWithin7Days(r.timestamp));
+}
+
+/**
+ * POST /api/history/test
+ * Save a skill test record
+ */
+app.post('/api/history/test', (req, res) => {
+  try {
+    const { skill_id, skill_name, test_input, test_output, model, latency, timestamp } = req.body;
+
+    const record = {
+      id: Date.now().toString(),
+      skill_id,
+      skill_name,
+      test_input,
+      test_output,
+      model,
+      latency,
+      timestamp: timestamp || new Date().toISOString(),
+    };
+
+    historyData.testHistory.push(record);
+    cleanupOldRecords(); // Cleanup old records
+    console.log(`[history] Saved test record for skill: ${skill_id}`);
+
+    res.json({ success: true, record });
+  } catch (error) {
+    console.error('[history] Error saving test record:', error);
+    res.status(500).json({ error: '保存失败' });
+  }
+});
+
+/**
+ * GET /api/history/tests
+ * Fetch test history for a skill
+ */
+app.get('/api/history/tests', (req, res) => {
+  try {
+    const { skill_id, limit = 50 } = req.query;
+    cleanupOldRecords();
+
+    let records = skill_id
+      ? historyData.testHistory.filter(r => r.skill_id === skill_id)
+      : historyData.testHistory;
+
+    // Sort by timestamp descending (newest first)
+    records = records.sort((a, b) => parseDate(b.timestamp) - parseDate(a.timestamp));
+    records = records.slice(0, parseInt(limit));
+
+    res.json(records);
+  } catch (error) {
+    console.error('[history] Error fetching test records:', error);
+    res.status(500).json({ error: '查询失败' });
+  }
+});
+
+/**
+ * POST /api/history/eval
+ * Save a skill evaluation record
+ */
+app.post('/api/history/eval', (req, res) => {
+  try {
+    const { skill_id, skill_name, scores, avg_score, optimization_suggestions, weakness_analysis, model, timestamp } = req.body;
+
+    const record = {
+      id: Date.now().toString(),
+      skill_id,
+      skill_name,
+      scores,
+      avg_score,
+      optimization_suggestions,
+      weakness_analysis,
+      model,
+      timestamp: timestamp || new Date().toISOString(),
+    };
+
+    historyData.evalHistory.push(record);
+    cleanupOldRecords(); // Cleanup old records
+    console.log(`[history] Saved eval record for skill: ${skill_id}`);
+
+    res.json({ success: true, record });
+  } catch (error) {
+    console.error('[history] Error saving eval record:', error);
+    res.status(500).json({ error: '保存失败' });
+  }
+});
+
+/**
+ * GET /api/history/evals
+ * Fetch evaluation history for a skill
+ */
+app.get('/api/history/evals', (req, res) => {
+  try {
+    const { skill_id, limit = 30 } = req.query;
+    cleanupOldRecords();
+
+    let records = skill_id
+      ? historyData.evalHistory.filter(r => r.skill_id === skill_id)
+      : historyData.evalHistory;
+
+    // Sort by timestamp descending
+    records = records.sort((a, b) => parseDate(b.timestamp) - parseDate(a.timestamp));
+    records = records.slice(0, parseInt(limit));
+
+    res.json(records);
+  } catch (error) {
+    console.error('[history] Error fetching eval records:', error);
+    res.status(500).json({ error: '查询失败' });
+  }
+});
+
+/**
+ * GET /api/history/trends
+ * Fetch evaluation trends for chart display
+ */
+app.get('/api/history/trends', (req, res) => {
+  try {
+    const { skill_id, days = 7 } = req.query;
+    cleanupOldRecords();
+
+    // Filter records within the specified days
+    const now = new Date();
+    const targetDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    let records = historyData.evalHistory.filter(r => {
+      if (skill_id && r.skill_id !== skill_id) return false;
+      return parseDate(r.timestamp) >= targetDate;
+    });
+
+    // Group by date and calculate daily averages
+    const grouped = {};
+    records.forEach(r => {
+      const date = parseDate(r.timestamp).toLocaleDateString('zh-CN');
+      if (!grouped[date]) {
+        grouped[date] = { scores: [], count: 0 };
+      }
+      grouped[date].scores.push(r.avg_score || 0);
+      grouped[date].count += 1;
+    });
+
+    // Convert to chart-friendly format
+    const trends = Object.entries(grouped).map(([date, data]) => ({
+      date,
+      avgScore: Math.round((data.scores.reduce((a, b) => a + b, 0) / data.count) * 10) / 10,
+      count: data.count,
+      scores: data.scores,
+    }));
+
+    // Sort by date
+    trends.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    res.json(trends);
+  } catch (error) {
+    console.error('[history] Error fetching trends:', error);
+    res.status(500).json({ error: '查询失败' });
+  }
+});
+
+/**
+ * DELETE /api/history/test/:id
+ * Delete a test record
+ */
+app.delete('/api/history/test/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const index = historyData.testHistory.findIndex(r => r.id === id);
+
+    if (index === -1) {
+      return res.status(404).json({ error: '记录不存在' });
+    }
+
+    historyData.testHistory.splice(index, 1);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[history] Error deleting test record:', error);
+    res.status(500).json({ error: '删除失败' });
+  }
+});
+
+/**
+ * DELETE /api/history/eval/:id
+ * Delete an evaluation record
+ */
+app.delete('/api/history/eval/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const index = historyData.evalHistory.findIndex(r => r.id === id);
+
+    if (index === -1) {
+      return res.status(404).json({ error: '记录不存在' });
+    }
+
+    historyData.evalHistory.splice(index, 1);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[history] Error deleting eval record:', error);
+    res.status(500).json({ error: '删除失败' });
+  }
+});
+
+/**
+ * DELETE /api/history/clear
+ * Clear all history for a skill
+ */
+app.delete('/api/history/clear', (req, res) => {
+  try {
+    const { skill_id } = req.query;
+
+    if (!skill_id) {
+      return res.status(400).json({ error: 'skill_id 必需' });
+    }
+
+    historyData.testHistory = historyData.testHistory.filter(r => r.skill_id !== skill_id);
+    historyData.evalHistory = historyData.evalHistory.filter(r => r.skill_id !== skill_id);
+
+    console.log(`[history] Cleared all history for skill: ${skill_id}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[history] Error clearing history:', error);
+    res.status(500).json({ error: '清除失败' });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);

@@ -21,6 +21,8 @@ import { useStore } from '../store';
 import { detectFormat, validateSkillMd, validateFunctionCall, validatePromptTemplate } from '../utils/skillParser';
 import { getPreviewType } from '../specializedRules';
 import DesignPreview from './DesignPreview';
+import { saveTestRecord } from '../utils/historyManager';
+import HistoryPanel from './HistoryPanel';
 
 const { Text, Title, Paragraph } = Typography;
 const { Option } = Select;
@@ -58,7 +60,7 @@ const SkillEditor = () => {
   const [runError, setRunError] = useState('');
   const [runDuration, setRunDuration] = useState(null);
   const [runModelLabel, setRunModelLabel] = useState('');
-  const [outputTab, setOutputTab] = useState('preview'); // 'preview' | 'raw'
+  const [outputTab, setOutputTab] = useState('preview'); // 'preview' | 'raw' | 'history'
 
   // ── Doc upload state ─────────────────────────────────────────
   const [docUploading, setDocUploading] = useState(false);
@@ -296,6 +298,16 @@ const SkillEditor = () => {
           setRunDuration(data.duration_ms || null);
           setRunModelLabel(data.model || '');
           message.success('技能运行成功');
+
+          // Save test record to history
+          await saveTestRecord({
+            skillId: selectedSkill.id,
+            skillName: selectedSkill.name,
+            testInput: userInput,
+            testOutput: data.output || '',
+            model: `${selectedModel.provider}/${selectedModel.model}`,
+            latency: data.duration_ms || 0,
+          });
         }
       } catch (fetchErr) {
         clearTimeout(timeoutId);
@@ -735,12 +747,73 @@ const SkillEditor = () => {
             </div>
           ) : runError ? (
             <Alert type="error" message="运行失败" description={runError} showIcon={false} style={{ padding: '10px 14px', fontSize: 12 }} />
-          ) : runOutput ? (
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <DesignPreview
-                output={runOutput}
-                previewType={getPreviewType(selectedSkill?.category)}
-                previewEnv={null}
+          ) : runOutput || selectedSkill ? (
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <Tabs
+                activeKey={outputTab}
+                onChange={setOutputTab}
+                size="small"
+                style={{ flex: 1, minHeight: 0 }}
+                items={[
+                  {
+                    key: 'preview',
+                    label: '预览',
+                    children: (
+                      <div style={{ flex: 1, minHeight: 0 }}>
+                        {runOutput ? (
+                          <DesignPreview
+                            output={runOutput}
+                            previewType={getPreviewType(selectedSkill?.category)}
+                            previewEnv={null}
+                          />
+                        ) : (
+                          <div style={{ background: '#fff', border: '1px dashed #e5e7eb', borderRadius: 6, padding: 30, textAlign: 'center' }}>
+                            <Text style={{ fontSize: 12, color: '#9ca3af' }}>
+                              运行技能后，输出将显示在此处
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  },
+                  {
+                    key: 'raw',
+                    label: '原始结果',
+                    children: (
+                      <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                        {runOutput ? (
+                          <pre style={{
+                            background: '#0f172a',
+                            color: '#e2e8f0',
+                            padding: 14,
+                            borderRadius: 6,
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                            margin: 0,
+                            fontFamily: "'Fira Code', 'Courier New', monospace",
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                          }}>
+                            {runOutput}
+                          </pre>
+                        ) : (
+                          <div style={{ background: '#fff', border: '1px dashed #e5e7eb', borderRadius: 6, padding: 30, textAlign: 'center' }}>
+                            <Text style={{ fontSize: 12, color: '#9ca3af' }}>
+                              运行技能后，原始结果将显示在此处
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  },
+                  {
+                    key: 'history',
+                    label: '测试历史',
+                    children: selectedSkill ? (
+                      <HistoryPanel skillId={selectedSkill.id} skillName={selectedSkill.name} />
+                    ) : null
+                  }
+                ]}
               />
             </div>
           ) : (

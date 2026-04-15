@@ -4,9 +4,10 @@ import {
   Spin, Upload, Progress, Tooltip, Tag,
 } from 'antd';
 import { useStore } from '../store';
+import { saveEvalRecord } from '../utils/historyManager';
+import HistoryPanel from './HistoryPanel';
 
 const { Sider, Content } = Layout;
-const { TabPane } = Tabs;
 const { Option } = Select;
 
 // PRD 4-dimension framework
@@ -160,6 +161,23 @@ export default function SkillEvaluatorModule() {
       } else {
         set({ results: data, resultsTab: 'evaluation' });
         message.success('评估完成');
+
+        // Save evaluation record to history
+        const scores = {};
+        if (data.dimensional_scores) {
+          for (const [key, value] of Object.entries(data.dimensional_scores)) {
+            scores[key] = typeof value === 'object' ? value.score : value;
+          }
+        }
+
+        await saveEvalRecord({
+          skillId: selectedSkillId,
+          skillName: selectedSkill?.name || '',
+          scores: scores,
+          optimizationSuggestions: data.optimization_suggestions || [],
+          weaknessAnalysis: data.weakness_analysis || {},
+          model: selectedModel?.displayName || `${selectedModel?.provider}/${selectedModel?.model}`,
+        });
       }
     } catch (err) {
       message.error('请求失败: ' + err.message);
@@ -847,11 +865,35 @@ export default function SkillEvaluatorModule() {
         </div>
       )}
       {results && !evaluating && (
-        <Tabs activeKey={resultsTab} onChange={(k) => set({ resultsTab: k })} tabBarStyle={{ borderBottom: '1px solid #e5e7eb', marginBottom: 20 }}>
-          <TabPane tab="技能评估" key="evaluation">{renderEvaluationTab()}</TabPane>
-          <TabPane tab={`测试结果（${results.summary?.total_tests ?? 0}条）`} key="test-results">{renderTestResultsTab()}</TabPane>
-          <TabPane tab="优化方案" key="optimization">{renderOptimizationTab()}</TabPane>
-        </Tabs>
+        <Tabs
+          activeKey={resultsTab}
+          onChange={(k) => set({ resultsTab: k })}
+          tabBarStyle={{ borderBottom: '1px solid #e5e7eb', marginBottom: 20 }}
+          items={[
+            {
+              key: 'evaluation',
+              label: '技能评估',
+              children: renderEvaluationTab()
+            },
+            {
+              key: 'test-results',
+              label: `测试结果（${results.summary?.total_tests ?? 0}条）`,
+              children: renderTestResultsTab()
+            },
+            {
+              key: 'optimization',
+              label: '优化方案',
+              children: renderOptimizationTab()
+            },
+            {
+              key: 'history',
+              label: '评估历史',
+              children: selectedSkill ? (
+                <HistoryPanel skillId={selectedSkill.id} skillName={selectedSkill.name} />
+              ) : null
+            }
+          ]}
+        />
       )}
     </div>
   );

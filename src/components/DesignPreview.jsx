@@ -98,7 +98,7 @@ function RawView({ output }) {
 }
 
 // ── Enhanced Markdown Preview ─────────────────────────────────────────────
-// Renders markdown with color swatch / font-size / spacing visualizations
+// Renders markdown with proper HTML support, including links, images, tables, etc.
 
 function MarkdownPreview({ output }) {
   const html = useMemo(() => {
@@ -151,21 +151,62 @@ function MarkdownPreview({ output }) {
         `<pre style="background:#0f172a;color:#e2e8f0;padding:12px;border-radius:6px;font-size:12px;font-family:monospace;overflow:auto;white-space:pre-wrap">${code}</pre>`
       );
     });
-    // Headings
+
+    // Horizontal rules
+    text = text.replace(/^---+$/gm, '<hr style="border:none;border-top:2px solid #e5e7eb;margin:24px 0"/>');
+    text = text.replace(/^\*\*\*+$/gm, '<hr style="border:none;border-top:2px solid #e5e7eb;margin:24px 0"/>');
+
+    // Headings (must be before processing other content)
     text = text.replace(/^### (.+)$/gm, '<h3 style="font-size:15px;font-weight:700;color:#111827;margin:16px 0 8px">$1</h3>');
     text = text.replace(/^## (.+)$/gm, '<h2 style="font-size:17px;font-weight:700;color:#111827;margin:20px 0 10px;border-bottom:1px solid #e5e7eb;padding-bottom:6px">$1</h2>');
     text = text.replace(/^# (.+)$/gm, '<h1 style="font-size:20px;font-weight:800;color:#111827;margin:24px 0 12px">$1</h1>');
-    // Bold & italic
+
+    // Blockquotes
+    text = text.replace(/^&gt; (.+)$/gm, '<blockquote style="border-left:4px solid #3b82f6;padding:8px 0 8px 12px;margin:12px 0;background:#eff6ff;color:#1e40af;font-style:italic">$1</blockquote>');
+
+    // Links [text](url) - before processing other inline formatting
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#3b82f6;text-decoration:underline;cursor:pointer">$1</a>');
+
+    // Images ![alt](url)
+    text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;height:auto;border-radius:6px;margin:8px 0"/>');
+
+    // Bold & italic (must be after links)
     text = text.replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight:700">$1</strong>');
-    text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    // Inline code
+    text = text.replace(/\*(.+?)\*/g, '<em style="font-style:italic">$1</em>');
+    text = text.replace(/__(.+?)__/g, '<strong style="font-weight:700">$1</strong>');
+    text = text.replace(/_(.+?)_/g, '<em style="font-style:italic">$1</em>');
+
+    // Inline code (must be after links and other formatting)
     text = text.replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:2px 6px;border-radius:3px;font-size:12px;font-family:monospace;color:#374151">$1</code>');
-    // Lists
-    text = text.replace(/^- (.+)$/gm, '<div style="padding-left:16px;margin:3px 0"><span style="color:#6b7280;margin-right:6px">·</span>$1</div>');
+
+    // Unordered lists
+    text = text.replace(/^[\s]*[\*\-] (.+)$/gm, '<div style="padding-left:16px;margin:4px 0"><span style="color:#6b7280;margin-right:6px">•</span>$1</div>');
+
+    // Ordered lists
+    text = text.replace(/^[\s]*(\d+)\. (.+)$/gm, '<div style="padding-left:16px;margin:4px 0"><span style="color:#6b7280;margin-right:6px">$1.</span>$2</div>');
+
+    // Tables (simple markdown table support)
+    text = text.replace(/\|(.+)\|/g, (match) => {
+      const rows = text.split('\n').filter(line => line.trim().startsWith('|'));
+      if (rows.length < 2) return match;
+
+      const tableRows = rows.map((row, idx) => {
+        const cells = row.split('|').filter(cell => cell.trim().length > 0);
+        const isHeader = idx === 0;
+        const cellHtml = cells.map(cell => {
+          const tag = isHeader ? 'th' : 'td';
+          return `<${tag} style="border:1px solid #e5e7eb;padding:8px;text-align:left">${cell.trim()}</${tag}>`;
+        }).join('');
+        return `<tr>${cellHtml}</tr>`;
+      }).join('');
+
+      return addPlaceholder(`<table style="border-collapse:collapse;width:100%;margin:12px 0;border:1px solid #e5e7eb">${tableRows}</table>`);
+    });
+
     // Paragraphs (double newlines)
     text = text.replace(/\n\n/g, '<div style="height:12px"></div>');
-    // Single newlines
-    text = text.replace(/\n/g, '<br/>');
+    // Single newlines (but not inside tags)
+    text = text.replace(/([^>\n])\n([^<\n])/g, '$1<br/>$2');
 
     // STEP 4: Restore all placeholders with their actual HTML
     placeholders.forEach((placeholder, i) => {

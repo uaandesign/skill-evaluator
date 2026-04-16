@@ -560,7 +560,12 @@ export default function SkillEvaluatorModule() {
         )}
 
         {/* Volcano evaluation dimensions */}
-        {results.volcano_dimensional_scores && Object.keys(results.volcano_dimensional_scores).length > 0 && (
+        {results.volcano_skipped ? (
+          <div style={{ marginBottom: 20, padding: '12px 14px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, fontSize: 12, color: '#92400e' }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ 火山评估 - 未获取标准</div>
+            <div>未上传火山规则 Skill，无法执行合规性评估。如需进行火山评估，请在配置第 5 项上传火山规则文件。</div>
+          </div>
+        ) : results.volcano_dimensional_scores && Object.keys(results.volcano_dimensional_scores).length > 0 ? (
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>
@@ -609,7 +614,7 @@ export default function SkillEvaluatorModule() {
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
         {/* Optimization suggestions */}
         {results.optimization_suggestions?.length > 0 && (

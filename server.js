@@ -1197,8 +1197,30 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
       ? [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }]
       : [{ role: 'user', content: userPrompt }];
 
+    // ── Model name normalization for Qwen ────────────────────────────────
+    // Qwen uses different model names in different contexts, ensure consistency
+    let modelName = modelConfig.model;
+    if (modelConfig.provider === 'qwen') {
+      // Map common Qwen model names to correct API format
+      const qwenModelMap = {
+        'qwen-max': 'qwen-max',
+        'qwen-turbo': 'qwen-turbo',
+        'qwen-plus': 'qwen-plus',
+        'qwen3.5-27b-instruct': 'qwen-max',  // Alternative naming
+        'qwen3.5 27b instruct': 'qwen-max',
+        'qwen2.5-72b-instruct': 'qwen-max',  // Newer model
+        'qwen2.5 72b instruct': 'qwen-max',
+        'qwen-7b': 'qwen-plus',
+        'qwen-14b': 'qwen-turbo',
+        'qwen-72b': 'qwen-max',
+      };
+      const normalizedName = qwenModelMap[modelName] || modelName;
+      console.log(`[callLLMForEval] Qwen 模型名称映射: ${modelName} → ${normalizedName}`);
+      modelName = normalizedName;
+    }
+
     const reqBody = {
-      model: modelConfig.model,
+      model: modelName,
       max_tokens: maxTokens,
       temperature: 0,
       messages,
@@ -1521,10 +1543,24 @@ ${skillContent}
 ## 测试执行结果
 ${resultsText}
 
+## 评分标准（保证一致性）
+- 5分：完全满足维度要求，无任何缺陷
+- 4分：基本满足要求，有 1-2 处轻微不足
+- 3分：部分满足要求，有 3-5 处不足或 1 处主要缺陷
+- 2分：大部分不满足要求，有多处主要缺陷
+- 1分：严重不符合要求，无法使用
+
+## 评分注意事项
+1. 严格按照各维度定义对应分数，保证一致性
+2. 相同技能多次评估应得出相同或非常接近的分数
+3. 基于实际测试结果和技能定义，不考虑主观因素
+4. 如果维度在技能中不适用，给 3 分并注明"不适用"
+5. 分数决策需基于具体的成功/失败指标，不能模棱两可
+
 请为以上4个维度各评分1-5分，并生成JSON格式结果：
 {
   "dimensional_scores": {
-    "维度名": { "score": 4, "comment": "评分说明" }
+    "维度名": { "score": 4, "comment": "基于[具体指标]评分为 4 分：[理由]" }
   },
   "weakness_analysis": {
     "lowest_dimension": "得分最低维度",
@@ -2030,8 +2066,14 @@ ${resultsForJudge}
     let volcanoComplianceSummary = null;
     let volcanoFixSuggestions = [];
     let volcanoScore = null;
+    let volcanoSkipped = false;  // 标记火山评估是否被跳过
 
-    {
+    // Check if volcano rule skill is provided — if not, skip volcano evaluation
+    if (!volcano_rule_skill || volcano_rule_skill.trim().length === 0) {
+      console.log('[evaluate-skill] 火山规则 Skill 未上传，跳过 Phase 4 火山评估');
+      volcanoSkipped = true;
+      volcanoComplianceSummary = '未获取标准（未上传火山规则 Skill）';
+    } else {
       console.log(`[evaluate-skill] 开始 Phase 4 火山评估...`);
       const volcanoPrompt = buildVolcanoPrompt(
         skill_content,
@@ -2093,6 +2135,9 @@ ${resultsForJudge}
       // 标记Judge是否被跳过
       judge_skipped: judgeSkipped,
       judge_skip_reason: judgeSkipped ? evaluationResult.judge_skip_reason : null,
+      // 标记火山评估是否被跳过
+      volcano_skipped: volcanoSkipped,
+      volcano_skip_reason: volcanoSkipped ? '未上传火山规则 Skill' : null,
       summary: {
         overall_score: computedOverall,
         generic_score: genericScore,

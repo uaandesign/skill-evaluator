@@ -1871,13 +1871,65 @@ ${resultsForJudge}
 
     // ── Parse judge response with improved error handling ──────────────────
     let evaluationResult;
+    let judgeSkipped = false; // 标记是否跳过了Judge评估
+
     if (judgeCallError && !judgeResponseText) {
-      // Judge completely failed and no fallback
-      console.error('[evaluate-skill] Judge 评估完全失败，无法继续。原因:', judgeCallError);
-      return res.status(400).json({
-        error: `Judge 模型调用失败: ${judgeCallError}`,
-        suggestion: '请检查网络连通性，或切换到其他可用的 LLM 模型'
-      });
+      // Judge completely failed — try to skip judge and use execution results directly
+      console.warn('[evaluate-skill] Judge 评估失败，尝试跳过 Judge 使用执行结果...');
+
+      // Build a simplified evaluation result from execution results
+      const passedCount = executionResults.filter(r => !r.execution_error).length;
+      const totalCount = executionResults.length;
+      const passRate = totalCount > 0 ? passedCount / totalCount : 0;
+
+      // Create basic evaluation result without Judge scoring
+      evaluationResult = {
+        summary: {
+          overall_score: passRate >= 0.8 ? 70 : passRate >= 0.6 ? 50 : 30,
+          quality_score: passRate >= 0.8 ? 70 : passRate >= 0.6 ? 50 : 30,
+          functionality_score: passRate >= 0.8 ? 70 : passRate >= 0.6 ? 50 : 30,
+          safety_score: passRate >= 0.8 ? 70 : passRate >= 0.6 ? 50 : 30,
+          total_tests: totalCount,
+          passed_tests: passedCount,
+          failed_tests: totalCount - passedCount,
+          pass_rate: passRate,
+        },
+        dimensional_scores: {
+          "有用性": { score: passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2, comment: "基于通过率估算" },
+          "稳定性": { score: passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2, comment: "基于通过率估算" },
+          "准确性": { score: passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2, comment: "基于通过率估算" },
+          "安全性": { score: 4, comment: "无法评估，Judge模型不可用" }
+        },
+        detailed_results: executionResults.map((r, i) => ({
+          id: r.id || `${i + 1}`,
+          name: r.name || `测试用例 ${i + 1}`,
+          test_type: r.test_type || '正常场景',
+          priority: r.priority || '中',
+          passed: !r.execution_error,
+          actual_output: r.actual_output || '',
+          expected_output: r.expected_output || '',
+          input: r.input || '',
+          failure_reason: r.execution_error || '',
+          latency_ms: r.latency_ms || 0,
+          scores: {
+            "有用性": passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2,
+            "稳定性": passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2,
+            "准确性": passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2,
+            "安全性": 4
+          }
+        })),
+        weakness_analysis: {
+          lowest_dimension: "安全性 (Judge模型不可用，无法准确评估)",
+          common_failures: executionResults.filter(r => r.execution_error).map(r => r.execution_error).slice(0, 3),
+          systematic_issues: ["Judge 模型连接失败，评分为基于通过率的估计值"]
+        },
+        optimization_suggestions: [],
+        judge_skipped: true,
+        judge_skip_reason: judgeCallError,
+      };
+
+      judgeSkipped = true;
+      console.log('[evaluate-skill] Judge 已跳过，使用执行结果生成基础评估报告');
     }
 
     try {
@@ -2038,6 +2090,9 @@ ${resultsForJudge}
       success: true,
       evaluation_mode: 'real',
       skill_category: skill_category || null,
+      // 标记Judge是否被跳过
+      judge_skipped: judgeSkipped,
+      judge_skip_reason: judgeSkipped ? evaluationResult.judge_skip_reason : null,
       summary: {
         overall_score: computedOverall,
         generic_score: genericScore,

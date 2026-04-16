@@ -46,6 +46,7 @@ const SkillEditor = () => {
 
   // ── Left panel state ──────────────────────────────────────────
   const [selectedSkillId, setSelectedSkillId] = useState(activeSkillId || null);
+  const [selectedVersionIndex, setSelectedVersionIndex] = useState(null); // 选择的版本索引
   const [editorContent, setEditorContent] = useState('');
   const [editorFormat, setEditorFormat] = useState('skillmd');
   const [dirty, setDirty] = useState(false);
@@ -152,19 +153,27 @@ const SkillEditor = () => {
     );
   }, [skills, skillSearchText]);
 
-  // Load selected skill into editor
+  // Load selected skill into editor (considering version selection)
   useEffect(() => {
     if (selectedSkill) {
-      setEditorContent(selectedSkill.content || '');
-      const fmt = selectedSkill.format || detectFormat(selectedSkill.content || '');
+      let contentToLoad = selectedSkill.content || '';
+
+      // 如果选择了特定版本，加载该版本
+      if (selectedVersionIndex !== null && selectedSkill.versions && selectedSkill.versions[selectedVersionIndex]) {
+        contentToLoad = selectedSkill.versions[selectedVersionIndex].content || '';
+      }
+
+      setEditorContent(contentToLoad);
+      const fmt = selectedSkill.format || detectFormat(contentToLoad || '');
       setEditorFormat(fmt);
       setDirty(false);
     } else {
       setEditorContent('');
       setEditorFormat('skillmd');
       setDirty(false);
+      setSelectedVersionIndex(null);
     }
-  }, [selectedSkill]);
+  }, [selectedSkill, selectedVersionIndex]);
 
   // Validate current content
   const validation = useMemo(() => {
@@ -440,6 +449,35 @@ const SkillEditor = () => {
       {/* Editor area */}
       {selectedSkillId && (
         <>
+          {/* Version selector */}
+          {selectedSkill && selectedSkill.versions && selectedSkill.versions.length > 1 && (
+            <div style={{ padding: '12px 20px 0 20px', flexShrink: 0 }}>
+              <div style={{ marginBottom: 8, fontSize: 12, color: '#6b7280' }}>
+                选择版本
+              </div>
+              <Select
+                value={selectedVersionIndex === null ? undefined : selectedVersionIndex}
+                onChange={(idx) => setSelectedVersionIndex(idx)}
+                style={{ width: '100%', marginBottom: 12 }}
+                placeholder="选择技能版本"
+              >
+                <Option value={null}>
+                  <Text>当前版本 (最新)</Text>
+                </Option>
+                {selectedSkill.versions.map((v, idx) => (
+                  <Option key={idx} value={idx}>
+                    {v.description || `版本 ${idx + 1}`}
+                    {v.timestamp && (
+                      <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
+                        {new Date(v.timestamp).toLocaleString('zh-CN')}
+                      </span>
+                    )}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+          )}
+
           <div style={{ padding: '12px 20px 0 20px', flexShrink: 0 }}>
             <Tabs
               activeKey={leftTab}

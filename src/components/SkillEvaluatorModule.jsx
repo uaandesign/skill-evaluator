@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Layout, Select, Button, Tabs, message, Modal,
-  Spin, Upload, Progress, Tooltip, Tag,
+  Spin, Upload, Progress, Tooltip, Tag, Alert,
 } from 'antd';
 import { useStore } from '../store';
 import { saveEvalRecord } from '../utils/historyManager';
@@ -425,6 +425,17 @@ export default function SkillEvaluatorModule() {
 
     return (
       <div>
+        {/* Judge 跳过警告 */}
+        {results.judge_skipped && (
+          <Alert
+            type="warning"
+            message="⚠️ Judge 模型不可用"
+            description={`Judge 模型连接失败，本次评估仅基于执行结果生成。评分为估计值，不代表完整评估。原因：${results.judge_skip_reason || '未知'}`}
+            showIcon={false}
+            style={{ marginBottom: 16, padding: '12px 14px', fontSize: 12 }}
+          />
+        )}
+
         {/* Top info bar - Azure Foundry style */}
         <div style={{
           background: 'linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)',
@@ -439,9 +450,9 @@ export default function SkillEvaluatorModule() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {results.evaluation_mode === 'real' && (
               <>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: results.judge_skipped ? '#f59e0b' : '#10b981' }} />
                 <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>
-                  真实执行评估 · {selectedModel?.displayName || '配置模型'}
+                  {results.judge_skipped ? '部分执行评估' : '真实执行评估'} · {selectedModel?.displayName || '配置模型'}
                 </span>
               </>
             )}

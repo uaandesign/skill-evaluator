@@ -1168,7 +1168,7 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
   // ── Anthropic / Claude (primary or fallback) ────────────────────────────
   if (!modelConfig || modelConfig.provider === 'anthropic') {
     const apiKey = modelConfig?.apiKey || process.env.ANTHROPIC_API_KEY;
-    const model  = modelConfig?.model  || 'claude-sonnet-4-6';
+    const model  = modelConfig?.model  || 'claude-sonnet-4.6';
     if (!apiKey) throw new Error('Anthropic API key 未配置，请在配置中心添加 Claude 模型或设置 ANTHROPIC_API_KEY 环境变量');
     return await callClaude(apiKey, model, userPrompt, maxTokens, systemPrompt);
   }
@@ -1249,7 +1249,7 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
         const claudeApiKey = process.env.ANTHROPIC_API_KEY;
         if (claudeApiKey) {
           try {
-            return await callClaude(claudeApiKey, 'claude-sonnet-4-6', userPrompt, maxTokens, systemPrompt);
+            return await callClaude(claudeApiKey, 'claude-sonnet-4.6', userPrompt, maxTokens, systemPrompt);
           } catch (fallbackErr) {
             console.error('[callLLMForEval] Claude 备用模型也失败:', fallbackErr.message);
             throw err; // re-throw original error

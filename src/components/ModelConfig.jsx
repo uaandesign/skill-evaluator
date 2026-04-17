@@ -32,9 +32,9 @@ const PROVIDERS = [
     name: 'Anthropic (Claude)',
     baseUrl: 'https://api.anthropic.com',
     models: [
-      { id: 'claude-sonnet-4-20250514', name: 'claude-sonnet-4-20250514' },
-      { id: 'claude-haiku-4-20250414', name: 'claude-haiku-4-20250414' },
-      { id: 'claude-opus-4-20250514', name: 'claude-opus-4-20250514' },
+      { id: 'claude-opus-4.6', name: 'claude-opus-4.6' },
+      { id: 'claude-sonnet-4.6', name: 'claude-sonnet-4.6' },
+      { id: 'claude-haiku-4.5', name: 'claude-haiku-4.5' },
       { id: 'claude-3-5-sonnet-20241022', name: 'claude-3.5-sonnet' },
       { id: 'claude-3-5-haiku-20241022', name: 'claude-3.5-haiku' },
     ]
@@ -65,9 +65,9 @@ const PROVIDERS = [
     name: 'Google Gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     models: [
-      { id: 'gemini-2.0-flash', name: 'gemini-2.0-flash' },
-      { id: 'gemini-2.0-pro', name: 'gemini-2.0-pro' },
+      { id: 'gemini-1.5-pro', name: 'gemini-1.5-pro' },
       { id: 'gemini-1.5-flash', name: 'gemini-1.5-flash' },
+      { id: 'gemini-2.0-flash-exp', name: 'gemini-2.0-flash-exp' },
     ]
   },
   {

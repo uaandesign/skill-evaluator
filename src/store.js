@@ -402,6 +402,27 @@ export const useStore = create(
         })),
 
       /* ============================================
+         Evaluation Standards — uploaded by user
+         Each standard: { name, content, size, uploadedAt } | null
+         - generic:     通用评估规则，替代 Phase 2 Judge 的内置 prompt
+         - specialized: 专项评估规则，替代 Phase 3 专项评估的内置 prompt
+         - volcano:     火山合规规则，替代 Phase 4 火山规范检查的内置 prompt
+         ============================================ */
+      evalStandards: {
+        generic:     null,
+        specialized: null,
+        volcano:     null,
+      },
+      setEvalStandard: (type, standard) =>
+        set((state) => ({
+          evalStandards: { ...state.evalStandards, [type]: standard },
+        })),
+      clearEvalStandard: (type) =>
+        set((state) => ({
+          evalStandards: { ...state.evalStandards, [type]: null },
+        })),
+
+      /* ============================================
          Helper: get a model config by ID (not an action, a selector)
          ============================================ */
       getModelConfigById: (id) => {
@@ -418,6 +439,7 @@ export const useStore = create(
         evaluations:    state.evaluations,
         activeTab:      state.activeTab,
         skillEvalState: state.skillEvalState,
+        evalStandards:  state.evalStandards,
       }),
     }
   )

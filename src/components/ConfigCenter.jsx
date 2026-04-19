@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Input, Button, Select, Collapse, Card, Space, Tag, Switch, message,
-  Typography, Row, Col, Tooltip, Spin, Divider,
+  Typography, Row, Col, Tooltip, Spin, Divider, Upload, Modal,
 } from 'antd';
 import { useStore, PROVIDERS } from '../store';
 
@@ -188,6 +188,7 @@ const ConfigCenter = () => {
   const {
     modelConfigs, addModelConfig, updateModelConfig, removeModelConfig,
     capabilities, updateCapability,
+    evalStandards, setEvalStandard, clearEvalStandard,
   } = useStore();
 
   // Local form state for adding models
@@ -573,9 +574,170 @@ const ConfigCenter = () => {
     </div>
   );
 
+  /* ----- Eval Standards Section ----- */
+  const [viewingStandard, setViewingStandard] = useState(null); // { title, content }
+
+  const STANDARD_DEFS = [
+    {
+      type: 'generic',
+      title: '通用评估规则',
+      desc: '用于第二阶段 Judge 评估，定义有用性、稳定性、准确性、安全性等通用维度的打分标准',
+      color: '#111827',
+      icon: '⚖️',
+    },
+    {
+      type: 'specialized',
+      title: '专项评估规则',
+      desc: '用于第三阶段专项评估，根据 Skill 类别（文本生成、代码生成、数据采集等）进行细化打分',
+      color: '#0369a1',
+      icon: '🎯',
+    },
+    {
+      type: 'volcano',
+      title: '火山合规规则',
+      desc: '用于第四阶段火山平台合规检查，检查函数引用规范、命名规范、元信息完整性等',
+      color: '#7c3aed',
+      icon: '🌋',
+    },
+  ];
+
+  const handleStandardUpload = (type, file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target.result;
+      setEvalStandard(type, {
+        name: file.name,
+        content,
+        size: file.size,
+        uploadedAt: Date.now(),
+      });
+      message.success(`已上传评估标准: ${file.name}`);
+    };
+    reader.readAsText(file);
+    return false; // prevent auto upload
+  };
+
+  const renderEvalStandardsSection = () => (
+    <div>
+      {sectionTitle(
+        '评估标准管理',
+        '上传自定义评估规则 Skill，平台将使用上传的 Skill 替代内置评估逻辑；未上传时自动回退至默认内置规则'
+      )}
+
+      {/* Usage guide */}
+      <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 12, color: '#0c4a6e', lineHeight: 1.7 }}>
+        <strong>使用说明：</strong>
+        <span> 上传 Markdown 格式的评估标准文件（.md/.txt），文件内容将作为对应评估阶段的 System Prompt 传入大模型。</span>
+        <br />
+        <span>评估模块会自动拼接测试数据和 JSON 输出格式要求，你的文件只需定义 <strong>评估维度、评分标准和判断逻辑</strong> 即可。</span>
+      </div>
+
+      <Space direction="vertical" style={{ width: '100%' }} size={16}>
+        {STANDARD_DEFS.map((def) => {
+          const current = evalStandards?.[def.type];
+          return (
+            <div
+              key={def.type}
+              style={{
+                background: '#fff',
+                border: `1px solid #e5e7eb`,
+                borderLeft: `4px solid ${def.color}`,
+                borderRadius: 8,
+                padding: '16px 20px',
+              }}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>
+                    {def.icon} {def.title}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3, lineHeight: 1.6 }}>{def.desc}</div>
+                </div>
+                {current ? (
+                  <Tag style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', flexShrink: 0, marginLeft: 12 }}>
+                    已上传
+                  </Tag>
+                ) : (
+                  <Tag style={{ background: '#f9fafb', color: '#9ca3af', border: '1px solid #e5e7eb', flexShrink: 0, marginLeft: 12 }}>
+                    使用内置规则
+                  </Tag>
+                )}
+              </div>
+
+              {/* Current file info */}
+              {current && (
+                <div style={{ background: '#f9fafb', border: '1px solid #f3f4f6', borderRadius: 6, padding: '8px 12px', marginBottom: 10, fontSize: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ fontWeight: 600, color: '#374151' }}>📄 {current.name}</span>
+                      <span style={{ color: '#9ca3af', marginLeft: 8 }}>
+                        {(current.size / 1024).toFixed(1)} KB · {new Date(current.uploadedAt).toLocaleDateString('zh-CN')}
+                      </span>
+                    </div>
+                    <Space size={6}>
+                      <Button
+                        size="small"
+                        type="link"
+                        style={{ padding: 0, fontSize: 12 }}
+                        onClick={() => setViewingStandard({ title: def.title, content: current.content })}
+                      >
+                        查看内容
+                      </Button>
+                      <Button
+                        size="small"
+                        type="link"
+                        danger
+                        style={{ padding: 0, fontSize: 12 }}
+                        onClick={() => { clearEvalStandard(def.type); message.success(`已清除「${def.title}」，将使用内置规则`); }}
+                      >
+                        移除
+                      </Button>
+                    </Space>
+                  </div>
+                  <div style={{ marginTop: 6, color: '#6b7280', fontSize: 11, whiteSpace: 'pre', overflow: 'hidden', textOverflow: 'ellipsis', maxHeight: 36 }}>
+                    {current.content.substring(0, 120).replace(/\n/g, ' ')}…
+                  </div>
+                </div>
+              )}
+
+              {/* Upload button */}
+              <Upload
+                accept=".md,.txt,.markdown"
+                beforeUpload={(file) => handleStandardUpload(def.type, file)}
+                showUploadList={false}
+              >
+                <Button size="small" style={{ borderColor: def.color, color: def.color }}>
+                  {current ? '重新上传' : '上传评估标准 Skill'}
+                </Button>
+              </Upload>
+            </div>
+          );
+        })}
+      </Space>
+
+      {/* View content modal */}
+      <Modal
+        title={viewingStandard?.title}
+        open={!!viewingStandard}
+        onCancel={() => setViewingStandard(null)}
+        footer={<Button onClick={() => setViewingStandard(null)}>关闭</Button>}
+        width={720}
+        styles={{ body: { maxHeight: '60vh', overflowY: 'auto', padding: 0 } }}
+      >
+        {viewingStandard && (
+          <pre style={{ margin: 0, padding: '16px 20px', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f9fafb', color: '#374151', lineHeight: 1.7 }}>
+            {viewingStandard.content}
+          </pre>
+        )}
+      </Modal>
+    </div>
+  );
+
   const tabs = [
     { key: 'models', label: '模型配置' },
     { key: 'capabilities', label: '底层能力' },
+    { key: 'eval-standards', label: '评估标准' },
     { key: 'preview-env', label: '预览环境' },
   ];
 
@@ -602,6 +764,7 @@ const ConfigCenter = () => {
 
       {activeSection === 'models' && renderModelSection()}
       {activeSection === 'capabilities' && renderCapabilitiesSection()}
+      {activeSection === 'eval-standards' && renderEvalStandardsSection()}
       {activeSection === 'preview-env' && renderPreviewEnvSection()}
     </div>
   );

@@ -37,7 +37,12 @@ function gradeFromScore(score) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function SkillEvaluatorModule() {
-  const { modelConfigs, skills, saveSkillVersion, skillEvalState, setSkillEvalState } = useStore();
+  const {
+    modelConfigs, skills, saveSkillVersion,
+    skillEvalState, setSkillEvalState,
+    evalStandards, setEvalStandard, clearEvalStandard,
+    setActiveTab,
+  } = useStore();
 
   // All UI state lives in Zustand so it survives tab switches
   const {
@@ -52,17 +57,19 @@ export default function SkillEvaluatorModule() {
   const [generating, setGenerating] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
+  const [viewingStandard, setViewingStandard] = useState(null); // { title, content }
 
-  // Volcano rule skill state
-  const [volcanoRuleSkill, setVolcanoRuleSkill] = useState('');
-  const [volcanoRuleFileName, setVolcanoRuleFileName] = useState('');
+  // Eval standards shortcuts
+  const genericStd     = evalStandards?.generic     || null;
+  const specializedStd = evalStandards?.specialized || null;
+  const volcanoStd     = evalStandards?.volcano     || null;
 
-  const handleVolcanoRuleUpload = (file) => {
+  // Quick upload handler for inline uploads in the sider
+  const handleInlineStandardUpload = (type, label, file) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      setVolcanoRuleSkill(e.target.result);
-      setVolcanoRuleFileName(file.name);
-      message.success(`已加载规则 Skill: ${file.name}`);
+      setEvalStandard(type, { name: file.name, content: e.target.result, size: file.size, uploadedAt: Date.now() });
+      message.success(`已上传${label}: ${file.name}`);
     };
     reader.readAsText(file);
     return false;
@@ -152,7 +159,10 @@ export default function SkillEvaluatorModule() {
           test_cases:    parsedCases,
           model_config:  selectedModel,
           skill_category: selectedSkill?.category || null,
-          volcano_rule_skill: volcanoRuleSkill || null,
+          // 上传的评估标准 skill（未上传时为 null，后端自动回退至内置规则）
+          generic_eval_skill:     genericStd?.content     || null,
+          specialized_eval_skill: specializedStd?.content || null,
+          volcano_eval_skill:     volcanoStd?.content     || null,
         }),
       });
       const data = await res.json();
@@ -367,21 +377,66 @@ export default function SkillEvaluatorModule() {
       <div style={S.divider} />
 
       {/* 5. 火山规则 Skill (optional) */}
+      {/* ── Eval Standards ── */}
       <div style={{ marginBottom: 14 }}>
-        <span style={S.label}>5. 火山规则 Skill（可选）</span>
-        <Upload accept=".md,.txt,.json" showUploadList={false} beforeUpload={handleVolcanoRuleUpload}>
-          <Button style={S.btnOutline}>上传规则 Skill 文件</Button>
-        </Upload>
-        {volcanoRuleFileName && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-            <span style={{ fontSize: 11, color: '#059669' }}>已加载: {volcanoRuleFileName} ({volcanoRuleSkill.length} 字符)</span>
-            <span
-              style={{ fontSize: 11, color: '#9ca3af', cursor: 'pointer', textDecoration: 'underline' }}
-              onClick={() => { setVolcanoRuleSkill(''); setVolcanoRuleFileName(''); message.info('已清除规则 Skill'); }}
-            >清除</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span style={S.label}>5. 评估标准 Skill</span>
+          <Button
+            size="small"
+            type="link"
+            style={{ fontSize: 11, padding: 0, height: 'auto' }}
+            onClick={() => setActiveTab('config-center')}
+          >
+            前往配置中心管理 →
+          </Button>
+        </div>
+
+        {[
+          { type: 'generic',     icon: '⚖️', label: '通用评估规则',  std: genericStd,     color: '#111827' },
+          { type: 'specialized', icon: '🎯', label: '专项评估规则',  std: specializedStd, color: '#0369a1' },
+          { type: 'volcano',     icon: '🌋', label: '火山合规规则',  std: volcanoStd,     color: '#7c3aed' },
+        ].map(({ type, icon, label, std, color }) => (
+          <div key={type} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, padding: '6px 10px', background: '#f9fafb', borderRadius: 6, border: `1px solid ${std ? '#a7f3d0' : '#e5e7eb'}`, borderLeft: `3px solid ${std ? color : '#e5e7eb'}` }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: std ? color : '#9ca3af' }}>{icon} {label}</span>
+              {std ? (
+                <div style={{ fontSize: 11, color: '#059669', marginTop: 1 }}>
+                  {std.name}
+                  <span
+                    style={{ marginLeft: 6, color: '#6b7280', cursor: 'pointer', textDecoration: 'underline' }}
+                    onClick={() => setViewingStandard({ title: label, content: std.content })}
+                  >查看</span>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>使用内置规则</div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0, marginLeft: 8 }}>
+              <Upload accept=".md,.txt,.markdown" showUploadList={false} beforeUpload={(f) => handleInlineStandardUpload(type, label, f)}>
+                <Button size="small" style={{ fontSize: 11, height: 22, padding: '0 6px' }}>上传</Button>
+              </Upload>
+              {std && (
+                <Button size="small" danger style={{ fontSize: 11, height: 22, padding: '0 6px' }} onClick={() => { clearEvalStandard(type); message.info(`已清除「${label}」`); }}>清除</Button>
+              )}
+            </div>
           </div>
-        )}
-        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>上传后，火山评估将依据规则文件检查待评估 Skill 的合规性</div>
+        ))}
+
+        {/* View standard modal */}
+        <Modal
+          title={viewingStandard?.title}
+          open={!!viewingStandard}
+          onCancel={() => setViewingStandard(null)}
+          footer={<Button onClick={() => setViewingStandard(null)}>关闭</Button>}
+          width={680}
+          styles={{ body: { maxHeight: '60vh', overflowY: 'auto', padding: 0 } }}
+        >
+          {viewingStandard && (
+            <pre style={{ margin: 0, padding: '16px 20px', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f9fafb', color: '#374151', lineHeight: 1.7 }}>
+              {viewingStandard.content}
+            </pre>
+          )}
+        </Modal>
       </div>
 
       <div style={S.divider} />

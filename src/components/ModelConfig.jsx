@@ -32,9 +32,9 @@ const PROVIDERS = [
     name: 'Anthropic (Claude)',
     baseUrl: 'https://api.anthropic.com',
     models: [
-      { id: 'claude-opus-4.6', name: 'claude-opus-4.6' },
-      { id: 'claude-sonnet-4.6', name: 'claude-sonnet-4.6' },
-      { id: 'claude-haiku-4.5', name: 'claude-haiku-4.5' },
+      { id: 'claude-opus-4-6', name: 'claude-opus-4-6' },
+      { id: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6' },
+      { id: 'claude-haiku-4-5-20251001', name: 'claude-haiku-4-5-20251001' },
       { id: 'claude-3-5-sonnet-20241022', name: 'claude-3.5-sonnet' },
       { id: 'claude-3-5-haiku-20241022', name: 'claude-3.5-haiku' },
     ]

@@ -2,18 +2,7 @@
 
 一站式评估 AI Skill 的完善度与优质度。
 
-## 快速启动
-
-```bash
-# 1. 安装依赖
-npm install
-
-# 2. 启动开发环境（同时启动前端和后端）
-npm run dev
-```
-
-- 前端: http://localhost:5173
-- 后端 API: http://localhost:3001
+https://skill-evaluator-ten.vercel.app/
 
 ## 功能模块
 

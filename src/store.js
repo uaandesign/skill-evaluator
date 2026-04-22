@@ -408,6 +408,18 @@ export const useStore = create(
          - specialized: 专项评估规则，替代 Phase 3 专项评估的内置 prompt
          - volcano:     火山合规规则，替代 Phase 4 火山规范检查的内置 prompt
          ============================================ */
+      /**
+       * evalModelId — 评估专用大模型 ID，在「配置中心 → 评估标准」tab 中统一配置
+       * 对应 modelConfigs 中某条记录的 id
+       */
+      evalModelId: null,
+      setEvalModelId: (id) => set({ evalModelId: id }),
+
+      /**
+       * evalStandards — 用户上传的评估标准 Skill 文件
+       * 文本文件：{ name, content, isCompressed: false, size, uploadedAt }
+       * 压缩包：  { name, content: null, base64, isCompressed: true, size, uploadedAt }
+       */
       evalStandards: {
         generic:     null,
         specialized: null,
@@ -440,6 +452,7 @@ export const useStore = create(
         activeTab:      state.activeTab,
         skillEvalState: state.skillEvalState,
         evalStandards:  state.evalStandards,
+        evalModelId:    state.evalModelId,
       }),
     }
   )

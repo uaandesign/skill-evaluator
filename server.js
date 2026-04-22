@@ -1,11 +1,19 @@
 import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
+import https from 'https';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { inflateSync, gunzipSync } from 'zlib';
+
+/**
+ * 本地开发环境 HTTPS Agent：跳过 SSL 证书验证。
+ * 仅用于 node-fetch 的 agent 参数，不影响生产环境（Vercel 使用原生 fetch）。
+ * 解决国内 API（Qwen/Doubao 等）在 Mac 本地出现 "unable to get local issuer certificate" 的问题。
+ */
+const insecureAgent = new https.Agent({ rejectUnauthorized: false });
 
 const execFileAsync = promisify(execFile);
 
@@ -769,6 +777,7 @@ async function callOpenAI(apiKey, model, messages, systemPrompt, tools, customBa
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    agent: insecureAgent,
   });
 
   if (!response.ok) {
@@ -815,6 +824,7 @@ async function callAnthropic(apiKey, model, messages, systemPrompt, tools) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    agent: insecureAgent,
   });
 
   if (!response.ok) {
@@ -865,6 +875,7 @@ async function callDoubao(apiKey, model, messages, systemPrompt, tools, customBa
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    agent: insecureAgent,
   });
 
   if (!response.ok) {
@@ -909,6 +920,7 @@ async function callQwen(apiKey, model, messages, systemPrompt, tools, customBase
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    agent: insecureAgent,
   });
 
   if (!response.ok) {
@@ -964,6 +976,7 @@ async function callGemini(apiKey, model, messages, systemPrompt, tools) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    agent: insecureAgent,
   });
 
   if (!response.ok) {
@@ -1023,6 +1036,7 @@ async function callDeepSeek(apiKey, model, messages, systemPrompt, tools, custom
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    agent: insecureAgent,
   });
 
   if (!response.ok) {
@@ -1077,7 +1091,8 @@ async function fetchWithRetry(url, options, {
     const timeoutId  = setTimeout(() => controller.abort(), requestTimeout);
 
     try {
-      const resp = await fetch(url, { ...options, signal: controller.signal });
+      // 注入 insecureAgent 以跳过本地 SSL 证书验证（解决 Mac 本地 "unable to get local issuer certificate"）
+      const resp = await fetch(url, { ...options, agent: insecureAgent, signal: controller.signal });
       clearTimeout(timeoutId);
 
       // ── Success ─────────────────────────────────────────────────────────
@@ -1673,9 +1688,42 @@ function mergeOptimizationSuggestions(generic = [], specialized = []) {
  *   Phase 3 — Specialized: (optional) if skill_category provided,
  *             evaluate based on category-specific dimensions
  */
+/**
+ * 从评估标准对象中提取纯文本内容（供 server.js 本地开发使用）
+ * - 文本文件：{ content: '...' }
+ * - 压缩包：  { base64: '...', isCompressed: true } → 用 adm-zip 解压
+ * - 字符串（旧版兼容）：直接返回
+ */
+async function resolveEvalSkillContent(standard) {
+  if (!standard) return null;
+  if (typeof standard === 'string') return standard;             // 旧字段兼容
+  if (!standard.isCompressed) return standard.content || null;   // 普通文本文件
+  if (!standard.base64) return null;
+  // 压缩包：需要 adm-zip
+  try {
+    const AdmZip = (await import('adm-zip')).default;
+    const buf = Buffer.from(standard.base64, 'base64');
+    const zip = new AdmZip(buf);
+    const entries = zip.getEntries().filter((e) => !e.isDirectory);
+    const entry = entries.find((e) => /SKILL\.md$/i.test(e.entryName))
+      || entries.find((e) => /\.md$/i.test(e.entryName))
+      || entries[0];
+    return entry ? entry.getData().toString('utf8') : null;
+  } catch (err) {
+    console.error('[resolveEvalSkillContent] 解压失败（adm-zip 未安装？）:', err.message);
+    return null;
+  }
+}
+
 app.post('/api/evaluate-skill', async (req, res) => {
   try {
-    const { skill_content, test_cases, model_config, skill_category, volcano_rule_skill, skill_name } = req.body;
+    const {
+      skill_content, test_cases, model_config, skill_category, skill_name,
+      // 用户上传的评估标准 skill（null = 使用内置规则）
+      generic_eval_skill, specialized_eval_skill, volcano_eval_skill,
+      // 旧字段兼容
+      volcano_rule_skill,
+    } = req.body;
 
     console.log(`[evaluate-skill] 收到请求 — provider: ${model_config?.provider}, model: ${model_config?.model}, hasContent: ${!!skill_content}, casesType: ${typeof test_cases}, category: ${skill_category || 'none'}`);
 
@@ -1683,6 +1731,14 @@ app.post('/api/evaluate-skill', async (req, res) => {
       console.warn('[evaluate-skill] 400: 缺少 skill_content');
       return res.status(400).json({ error: '缺少 skill_content 参数' });
     }
+
+    // ── 解析评估标准内容（支持文本文件和压缩包）────────────────────────────
+    const [genericSkillText, specializedSkillText, volcanoSkillText] = await Promise.all([
+      resolveEvalSkillContent(generic_eval_skill),
+      resolveEvalSkillContent(specialized_eval_skill),
+      resolveEvalSkillContent(volcano_eval_skill || volcano_rule_skill),
+    ]);
+    console.log(`[evaluate-skill] 评估标准 — 通用: ${genericSkillText ? `已加载(${genericSkillText.length}字符)` : '内置'}, 专项: ${specializedSkillText ? '已加载' : '内置'}, 火山: ${volcanoSkillText ? '已加载' : '内置'}`);
 
     // ── Parse test cases ────────────────────────────────────────────────────
     let rawCases = test_cases;
@@ -1872,10 +1928,32 @@ ${resultsForJudge}
     let judgeResponseText;
     let judgeCallError = null;
 
+    // 如果上传了通用评估标准，将其作为 system prompt；否则使用内置 judgePrompt（user prompt）
+    const judgeUserPrompt = genericSkillText
+      ? `请严格遵照系统提示（你的评估标准）中定义的评估维度和评分规则，对以下技能进行综合评分。
+
+⚠️ 关键约束（必须严格遵守）：
+1. dimensional_scores 中的维度名称和数量必须与系统提示中定义的完全一致，一个不多，一个不少
+2. 不得自行添加、删减或重命名任何维度
+3. 评分标准、分值区间以系统提示为准
+
+## 技能定义
+\`\`\`
+${skill_content}
+\`\`\`
+
+## 测试执行结果（共 ${executionResults.length} 条）
+${resultsForJudge}
+
+请严格返回 JSON（不要输出任何其他内容）。dimensional_scores 的每个 key 必须是系统提示中定义的维度名，有多少维度就写多少个 key：
+{"summary":{"overall_score":0,"total_tests":${executionResults.length},"passed_tests":0,"failed_tests":0,"pass_rate":0.0},"dimensional_scores":{"<系统提示定义的维度1>":{"score":80,"comment":"评分理由"},"<系统提示定义的维度2>":{"score":75,"comment":"评分理由"},"<...每个维度都要写>":{"score":0,"comment":""}},"detailed_results":[{"id":"1","name":"","passed":true,"actual_output":"","failure_reason":"","latency_ms":0,"scores":{}}],"weakness_analysis":{"lowest_dimension":"","common_failures":[],"systematic_issues":[]},"optimization_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","suggestion":"","expected_impact":""}]}`
+      : judgePrompt;
+    const judgeSystemPrompt = genericSkillText || null;
+
     try {
-      console.log(`[evaluate-skill] Phase 2 开始调用 Judge 模型 (${model_config?.provider}/${model_config?.model})...`);
+      console.log(`[evaluate-skill] Phase 2 开始调用 Judge 模型 (${model_config?.provider}/${model_config?.model})，使用${genericSkillText ? '自定义评估标准' : '内置规则'}...`);
       const judgeStartTime = Date.now();
-      judgeResponseText = await callLLMForEval(model_config || null, judgePrompt, 5000);
+      judgeResponseText = await callLLMForEval(model_config || null, judgeUserPrompt, 5000, judgeSystemPrompt);
       const judgeDuration = Date.now() - judgeStartTime;
       console.log(`[evaluate-skill] Judge 调用成功，耗时 ${judgeDuration}ms，响应长度: ${judgeResponseText.length} 字符`);
     } catch (llmError) {
@@ -1890,8 +1968,9 @@ ${resultsForJudge}
           if (claudeApiKey) {
             judgeResponseText = await callLLMForEval(
               { provider: 'anthropic', apiKey: claudeApiKey, model: 'claude-sonnet-4-6' },
-              judgePrompt,
-              5000
+              judgeUserPrompt,
+              5000,
+              judgeSystemPrompt
             );
             console.log('[evaluate-skill] Claude 备用 Judge 调用成功');
             judgeCallError = null; // Clear error since fallback succeeded
@@ -2027,14 +2106,20 @@ ${resultsForJudge}
     let specializedSuggestions = [];
     let specializedScore = null;
 
-    if (skill_category) {
-      console.log(`[evaluate-skill] 开始 Phase 3 专项评估（${skill_category}）...`);
+    if (skill_category || specializedSkillText) {
+      console.log(`[evaluate-skill] 开始 Phase 3 专项评估（${skill_category || '通用'}），使用${specializedSkillText ? '自定义评估标准' : '内置规则'}...`);
 
-      // Build specialized evaluation prompt based on category
-      const specializedPrompt = buildSpecializedPrompt(skill_category, finalDetailedResults, skill_content);
+      // 如果上传了专项评估标准，用它做 system prompt；否则使用内置分类 prompt
+      const specResultsText = finalDetailedResults
+        .map((r, i) => `用例 ${i + 1}: ${r.name} (${r.test_type})\n输入: ${r.input}\n预期: ${r.expected_output}\n实际: ${r.actual_output}\n状态: ${r.passed ? '通过' : '失败'}`)
+        .join('\n\n');
+      const specializedUserMsg = specializedSkillText
+        ? `请依据你的专项评估规则对以下技能进行评分。技能类别：${skill_category || '通用'}\n\n## 技能定义\n\`\`\`\n${skill_content}\n\`\`\`\n\n## 测试执行结果\n${specResultsText}\n\n请严格返回 JSON（不要输出其他内容）：\n{"dimensional_scores":{"维度名":{"score":4,"comment":"评分说明"}},"weakness_analysis":{"lowest_dimension":"","common_failures":[],"systematic_issues":[]},"optimization_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","suggestion":"","expected_impact":""}]}`
+        : buildSpecializedPrompt(skill_category, finalDetailedResults, skill_content);
+      const specializedSystemPrompt = specializedSkillText || null;
 
       try {
-        const specializedResponseText = await callLLMForEval(model_config || null, specializedPrompt, 3000);
+        const specializedResponseText = await callLLMForEval(model_config || null, specializedUserMsg, 3000, specializedSystemPrompt);
 
         try {
           const jsonMatch = specializedResponseText.match(/\{[\s\S]*\}/);
@@ -2068,21 +2153,37 @@ ${resultsForJudge}
     let volcanoScore = null;
     let volcanoSkipped = false;  // 标记火山评估是否被跳过
 
-    // Check if volcano rule skill is provided — if not, skip volcano evaluation
-    if (!volcano_rule_skill || volcano_rule_skill.trim().length === 0) {
+    // 如果上传了火山评估标准（volcano_eval_skill 或旧字段 volcano_rule_skill），执行 Phase 4；否则跳过
+    if (!volcanoSkillText) {
       console.log('[evaluate-skill] 火山规则 Skill 未上传，跳过 Phase 4 火山评估');
       volcanoSkipped = true;
       volcanoComplianceSummary = '未获取标准（未上传火山规则 Skill）';
     } else {
-      console.log(`[evaluate-skill] 开始 Phase 4 火山评估...`);
-      const volcanoPrompt = buildVolcanoPrompt(
-        skill_content,
-        skill_name || '',
-        volcano_rule_skill || null
-      );
+      console.log(`[evaluate-skill] 开始 Phase 4 火山评估，使用${volcano_eval_skill ? '自定义评估标准' : '旧版规则文件'}...`);
+      // 如果是新格式（eval_skill），用它做 system prompt，只发技能内容作为 user message
+      const volcanoUserMsg = volcano_eval_skill
+        ? `请严格遵照系统提示（你的合规检查标准）中定义的检查维度，对以下技能进行合规评估。
+
+⚠️ 关键约束（必须严格遵守）：
+1. dimensional_scores 中的维度名称和数量必须与系统提示中定义的完全一致，一个不多，一个不少
+2. 不得自行添加、删减或重命名任何检查维度
+3. 评分标准、分值区间以系统提示为准
+
+## 技能名称
+${skill_name || '未提供'}
+
+## 技能定义
+\`\`\`
+${skill_content}
+\`\`\`
+
+请严格返回 JSON（不要输出其他内容）。dimensional_scores 的每个 key 必须是系统提示中定义的检查维度名，有多少维度就写多少个 key：
+{"dimensional_scores":{"<系统提示定义的维度1>":{"score":80,"comment":"评分理由","issues":[]},"<系统提示定义的维度2>":{"score":90,"comment":"","issues":[]},"<...每个维度都要写>":{"score":0,"comment":"","issues":[]}},"compliance_summary":"总体合规性总结","fix_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","fix":""}]}`
+        : buildVolcanoPrompt(skill_content, skill_name || '', volcanoSkillText);
+      const volcanoSystemPrompt = volcano_eval_skill ? volcanoSkillText : null;
 
       try {
-        const volcanoResponseText = await callLLMForEval(model_config || null, volcanoPrompt, 3000);
+        const volcanoResponseText = await callLLMForEval(model_config || null, volcanoUserMsg, 3000, volcanoSystemPrompt);
         try {
           const jsonMatch = volcanoResponseText.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
@@ -2107,23 +2208,29 @@ ${resultsForJudge}
     }
 
     // ── Server-side weighted score calculation (ensures consistency) ──────
+    // 动态计算通用评分：对所有返回维度取均值，自动适配 1-5 分制 / 百分制
     const dimScores = evaluationResult.dimensional_scores || {};
-    const mapTo100 = (s) => (typeof s === 'number' ? s : (s?.score ?? 3)) * 20;
-    const usefulnessScore = mapTo100(dimScores['有用性']);
-    const reliabilityScore = mapTo100(dimScores['稳定性']);
-    const accuracyScore = mapTo100(dimScores['准确性']);
-    const safetyScore = mapTo100(dimScores['安全性']);
+    let genericScore;
+    const dimValues = Object.values(dimScores);
+    if (dimValues.length > 0) {
+      const rawScores = dimValues.map((d) => (typeof d === 'object' ? (d?.score ?? 3) : (d ?? 3)));
+      const maxRaw = Math.max(...rawScores);
+      // 任一值 > 5 视为已是百分制，否则乘以 20 转换
+      const normalize = maxRaw > 5 ? (s) => s : (s) => s * 20;
+      const total = rawScores.reduce((acc, s) => acc + normalize(s), 0);
+      genericScore = Math.round(total / rawScores.length);
+    } else {
+      // 无维度数据时，回退到内置命名维度（兼容旧格式）
+      const mapTo100 = (s) => (typeof s === 'number' ? s : (s?.score ?? 3)) * 20;
+      const qualityDim = (mapTo100(dimScores['稳定性']) + mapTo100(dimScores['准确性'])) / 2;
+      const funcDim = mapTo100(dimScores['有用性']);
+      const safetyDim = mapTo100(dimScores['安全性']);
+      genericScore = Math.round(qualityDim * 0.4 + funcDim * 0.35 + safetyDim * 0.25);
+    }
 
-    const qualityDim = (reliabilityScore + accuracyScore) / 2;   // 质量维度 = (稳定性 + 准确性) / 2
-    const funcDim = usefulnessScore;                               // 功能维度 = 有用性
-    const safetyDim = safetyScore;                                 // 安全合规 = 安全性
-
-    // 通用评分 = 质量×40% + 功能×35% + 安全×25%
-    const genericScore = Math.round(qualityDim * 0.4 + funcDim * 0.35 + safetyDim * 0.25);
-
-    // 如果有专项评分，总分 = 通用60% + 专项40%；否则总分 = 通用100%
-    const computedOverall = specializedScore !== null
-      ? Math.round(genericScore * 0.6 + specializedScore * 0.4)
+    // 综合评分 = 通用×70% + 火山×30%（如果有火山评分）；否则 = 通用100%
+    const computedOverall = volcanoScore !== null
+      ? Math.round(genericScore * 0.7 + volcanoScore * 0.3)
       : genericScore;
 
     console.log(`[evaluate-skill] 评估完成，通过 ${passedCount}/${finalDetailedResults.length}，加权总分: ${computedOverall}`);
@@ -2141,11 +2248,7 @@ ${resultsForJudge}
       summary: {
         overall_score: computedOverall,
         generic_score: genericScore,
-        specialized_score: specializedScore,
         volcano_score: volcanoScore,
-        quality_score: Math.round(qualityDim),
-        functionality_score: Math.round(funcDim),
-        safety_score: Math.round(safetyDim),
         total_tests:   finalDetailedResults.length,
         passed_tests:  summary.passed_tests  ?? passedCount,
         failed_tests:  summary.failed_tests  ?? (finalDetailedResults.length - passedCount),

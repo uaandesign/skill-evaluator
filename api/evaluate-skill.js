@@ -97,6 +97,42 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
   throw new Error(`不支持的模型供应商: ${modelConfig.provider}`);
 }
 
+// ── Eval Standard resolver ─────────────────────────────────────────────────
+
+/**
+ * 从评估标准对象中提取纯文本内容。
+ * - 文本文件：直接返回 content 字符串
+ * - 压缩包（base64 zip）：解压后返回主 SKILL.md 内容
+ * - 字符串（向后兼容）：直接返回
+ * @param {string|object|null} standard
+ * @returns {Promise<string|null>}
+ */
+async function resolveSkillContent(standard) {
+  if (!standard) return null;
+  // 向后兼容：旧版本直接传字符串
+  if (typeof standard === 'string') return standard;
+  // 普通文本文件
+  if (!standard.isCompressed) return standard.content || null;
+  // 压缩包：base64 → Buffer → AdmZip
+  if (!standard.base64) return null;
+  try {
+    const AdmZip = (await import('adm-zip')).default;
+    const buf = Buffer.from(standard.base64, 'base64');
+    const zip = new AdmZip(buf);
+    const entries = zip.getEntries().filter((e) => !e.isDirectory);
+    // 优先找 SKILL.md，其次找任意 .md，最后找任意文本文件
+    const skillMd = entries.find((e) => /SKILL\.md$/i.test(e.entryName));
+    const anyMd   = entries.find((e) => /\.md$/i.test(e.entryName));
+    const anyTxt  = entries.find((e) => /\.(md|txt|markdown)$/i.test(e.entryName));
+    const entry   = skillMd || anyMd || anyTxt || entries[0];
+    if (!entry) return null;
+    return entry.getData().toString('utf8');
+  } catch (err) {
+    console.error('[resolveSkillContent] 解压失败:', err.message);
+    return null;
+  }
+}
+
 // ── Prompt builders (built-in fallback) ───────────────────────────────────
 
 /**
@@ -109,9 +145,27 @@ function buildJudgePrompt(skillContent, resultsForJudge, totalTests) {
 /**
  * Build Phase 2 user message when a custom generic eval skill is provided.
  * The eval skill becomes the system prompt; this becomes the user message.
+ * IMPORTANT: explicitly instructs the LLM to use ONLY the dimensions defined
+ * in the system prompt (eval skill), not invent its own.
  */
 function buildJudgeUserMessage(skillContent, resultsForJudge, totalTests) {
-  return `请依据你的评估规则对以下技能进行综合评分。\n\n## 技能定义\n\`\`\`\n${skillContent}\n\`\`\`\n\n## 测试结果（共 ${totalTests} 条）\n${resultsForJudge}\n\n请严格返回 JSON，格式如下（不要输出任何其他内容）：\n{"summary":{"overall_score":0,"quality_score":0,"functionality_score":0,"safety_score":0,"total_tests":${totalTests},"passed_tests":0,"failed_tests":0,"pass_rate":0.0},"dimensional_scores":{"维度名":{"score":4,"weight":"说明","comment":"评分理由"}},"detailed_results":[{"id":"1","name":"","passed":true,"actual_output":"","failure_reason":"","latency_ms":0,"scores":{}}],"weakness_analysis":{"lowest_dimension":"","common_failures":[],"systematic_issues":[]},"optimization_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","suggestion":"","expected_impact":""}]}`;
+  return `请严格遵照系统提示（你的评估标准）中定义的评估维度和评分规则，对以下技能进行综合评分。
+
+⚠️ 关键约束（必须严格遵守）：
+1. dimensional_scores 中的维度名称和数量必须与系统提示中定义的完全一致，一个不多，一个不少
+2. 不得自行添加、删减或重命名任何维度
+3. 评分标准、分值区间以系统提示为准
+
+## 技能定义
+\`\`\`
+${skillContent}
+\`\`\`
+
+## 测试执行结果（共 ${totalTests} 条）
+${resultsForJudge}
+
+请严格返回 JSON（不要输出任何其他内容）。dimensional_scores 的每个 key 必须是系统提示中定义的维度名，有多少维度就写多少个 key：
+{"summary":{"overall_score":0,"total_tests":${totalTests},"passed_tests":0,"failed_tests":0,"pass_rate":0.0},"dimensional_scores":{"<系统提示定义的维度1>":{"score":80,"comment":"评分理由"},"<系统提示定义的维度2>":{"score":75,"comment":"评分理由"},"<...每个维度都要写>":{"score":0,"comment":""}},"detailed_results":[{"id":"1","name":"","passed":true,"actual_output":"","failure_reason":"","latency_ms":0,"scores":{}}],"weakness_analysis":{"lowest_dimension":"","common_failures":[],"systematic_issues":[]},"optimization_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","suggestion":"","expected_impact":""}]}`;
 }
 
 /**
@@ -153,9 +207,27 @@ function buildVolcanoPrompt(skillContent, skillName) {
 
 /**
  * Build Phase 4 user message when a custom volcano eval skill is provided.
+ * IMPORTANT: explicitly instructs the LLM to use ONLY the dimensions defined
+ * in the system prompt (volcano eval skill), not invent its own.
  */
 function buildVolcanoUserMessage(skillContent, skillName) {
-  return `请依据你的火山平台合规规则对以下技能进行检查。\n\n## 技能名称\n${skillName || '未提供'}\n\n## 技能定义\n\`\`\`\n${skillContent}\n\`\`\`\n\n请严格返回 JSON（不要输出其他内容）：\n{"dimensional_scores":{"检查维度名":{"score":4,"comment":"","issues":[]}},"compliance_summary":"总体合规性总结","fix_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","fix":""}]}`;
+  return `请严格遵照系统提示（你的合规检查标准）中定义的检查维度，对以下技能进行合规评估。
+
+⚠️ 关键约束（必须严格遵守）：
+1. dimensional_scores 中的维度名称和数量必须与系统提示中定义的完全一致，一个不多，一个不少
+2. 不得自行添加、删减或重命名任何检查维度
+3. 评分标准、分值区间以系统提示为准
+
+## 技能名称
+${skillName || '未提供'}
+
+## 技能定义
+\`\`\`
+${skillContent}
+\`\`\`
+
+请严格返回 JSON（不要输出其他内容）。dimensional_scores 的每个 key 必须是系统提示中定义的检查维度名，有多少维度就写多少个 key：
+{"dimensional_scores":{"<系统提示定义的维度1>":{"score":80,"comment":"评分理由","issues":[]},"<系统提示定义的维度2>":{"score":90,"comment":"","issues":[]},"<...每个维度都要写>":{"score":0,"comment":"","issues":[]}},"compliance_summary":"总体合规性总结","fix_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","fix":""}]}`;
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────
@@ -179,6 +251,13 @@ export default async function handler(req, res) {
       volcano_rule_skill,
     } = req.body;
     if (!skill_content) return res.status(400).json({ error: '缺少 skill_content 参数' });
+
+    // 解析评估标准（支持文本文件和压缩包）
+    const [genericSkillText, specializedSkillText, volcanoSkillText] = await Promise.all([
+      resolveSkillContent(generic_eval_skill),
+      resolveSkillContent(specialized_eval_skill),
+      resolveSkillContent(volcano_eval_skill || volcano_rule_skill),
+    ]);
 
     let rawCases = test_cases;
     if (typeof rawCases === 'string') {
@@ -223,10 +302,10 @@ export default async function handler(req, res) {
     let evaluationResult = {};
     try {
       let judgeText;
-      if (generic_eval_skill) {
+      if (genericSkillText) {
         // 使用上传的通用评估标准：eval skill → system prompt，测试数据 → user prompt
         const userMsg = buildJudgeUserMessage(skill_content, resultsForJudge, executionResults.length);
-        judgeText = await callLLMForEval(model_config || null, userMsg, 5000, generic_eval_skill);
+        judgeText = await callLLMForEval(model_config || null, userMsg, 5000, genericSkillText);
       } else {
         // 内置规则（全部放在 user prompt 中）
         const judgePrompt = buildJudgePrompt(skill_content, resultsForJudge, executionResults.length);
@@ -248,12 +327,12 @@ export default async function handler(req, res) {
     // ── Phase 3: Specialized (专项评估) ──────────────────────────
     // 优先使用上传的专项评估标准 skill；未上传时使用内置分类 prompt
     let specializedDimensionalScores = null, specializedWeakness = null, specializedSuggestions = [], specializedScore = null;
-    if (skill_category || specialized_eval_skill) {
+    if (skill_category || specializedSkillText) {
       try {
         let specText;
-        if (specialized_eval_skill) {
+        if (specializedSkillText) {
           const userMsg = buildSpecializedUserMessage(skill_category, finalDetailedResults, skill_content);
-          specText = await callLLMForEval(model_config || null, userMsg, 3000, specialized_eval_skill);
+          specText = await callLLMForEval(model_config || null, userMsg, 3000, specializedSkillText);
         } else {
           const specPrompt = buildSpecializedPrompt(skill_category, finalDetailedResults, skill_content);
           specText = await callLLMForEval(model_config || null, specPrompt, 3000);
@@ -276,10 +355,9 @@ export default async function handler(req, res) {
     {
       try {
         let volcanoText;
-        const effectiveVolcanoSkill = volcano_eval_skill || volcano_rule_skill || null;
-        if (effectiveVolcanoSkill) {
+        if (volcanoSkillText) {
           const userMsg = buildVolcanoUserMessage(skill_content, skill_name || '');
-          volcanoText = await callLLMForEval(model_config || null, userMsg, 3000, effectiveVolcanoSkill);
+          volcanoText = await callLLMForEval(model_config || null, userMsg, 3000, volcanoSkillText);
         } else {
           const volcanoPrompt = buildVolcanoPrompt(skill_content, skill_name || '');
           volcanoText = await callLLMForEval(model_config || null, volcanoPrompt, 3000);
@@ -297,14 +375,26 @@ export default async function handler(req, res) {
     }
 
     // ── Score calculation ─────────────────────────────────────────
+    // 动态计算通用评分：对所有返回维度取均值，自动适配 1-5 分制 / 百分制
     const dimScores = evaluationResult.dimensional_scores || {};
-    const mapTo100 = (s) => (typeof s === 'number' ? s : (s?.score ?? 3)) * 20;
-    const qualityDim = (mapTo100(dimScores['稳定性']) + mapTo100(dimScores['准确性'])) / 2;
-    const funcDim = mapTo100(dimScores['有用性']);
-    const safetyDim = mapTo100(dimScores['安全性']);
-    const genericScore = Math.round(qualityDim * 0.4 + funcDim * 0.35 + safetyDim * 0.25);
-    const computedOverall = specializedScore !== null
-      ? Math.round(genericScore * 0.6 + specializedScore * 0.4)
+    let genericScore;
+    const dimValues = Object.values(dimScores);
+    if (dimValues.length > 0) {
+      const rawScores = dimValues.map((d) => (typeof d === 'object' ? (d?.score ?? 3) : (d ?? 3)));
+      const maxRaw = Math.max(...rawScores);
+      const normalize = maxRaw > 5 ? (s) => s : (s) => s * 20;
+      const total = rawScores.reduce((acc, s) => acc + normalize(s), 0);
+      genericScore = Math.round(total / rawScores.length);
+    } else {
+      const mapTo100 = (s) => (typeof s === 'number' ? s : (s?.score ?? 3)) * 20;
+      const qualityDim = (mapTo100(dimScores['稳定性']) + mapTo100(dimScores['准确性'])) / 2;
+      const funcDim = mapTo100(dimScores['有用性']);
+      const safetyDim = mapTo100(dimScores['安全性']);
+      genericScore = Math.round(qualityDim * 0.4 + funcDim * 0.35 + safetyDim * 0.25);
+    }
+    // 综合评分 = 通用×70% + 火山×30%（如果有火山评分）；否则 = 通用100%
+    const computedOverall = volcanoScore !== null
+      ? Math.round(genericScore * 0.7 + volcanoScore * 0.3)
       : genericScore;
 
     const summary = evaluationResult.summary || {};
@@ -316,11 +406,7 @@ export default async function handler(req, res) {
       summary: {
         overall_score: computedOverall,
         generic_score: genericScore,
-        specialized_score: specializedScore,
         volcano_score: volcanoScore,
-        quality_score: Math.round(qualityDim),
-        functionality_score: Math.round(funcDim),
-        safety_score: Math.round(safetyDim),
         total_tests: finalDetailedResults.length,
         passed_tests: summary.passed_tests ?? passedCount,
         failed_tests: summary.failed_tests ?? (finalDetailedResults.length - passedCount),

@@ -189,6 +189,7 @@ const ConfigCenter = () => {
     modelConfigs, addModelConfig, updateModelConfig, removeModelConfig,
     capabilities, updateCapability,
     evalStandards, setEvalStandard, clearEvalStandard,
+    evalModelId, setEvalModelId,
   } = useStore();
 
   // Local form state for adding models
@@ -577,162 +578,221 @@ const ConfigCenter = () => {
   /* ----- Eval Standards Section ----- */
   const [viewingStandard, setViewingStandard] = useState(null); // { title, content }
 
+  // 黑白双色，无 icon
   const STANDARD_DEFS = [
     {
       type: 'generic',
       title: '通用评估规则',
       desc: '用于第二阶段 Judge 评估，定义有用性、稳定性、准确性、安全性等通用维度的打分标准',
-      color: '#111827',
-      icon: '⚖️',
     },
     {
       type: 'specialized',
       title: '专项评估规则',
       desc: '用于第三阶段专项评估，根据 Skill 类别（文本生成、代码生成、数据采集等）进行细化打分',
-      color: '#0369a1',
-      icon: '🎯',
     },
     {
       type: 'volcano',
       title: '火山合规规则',
       desc: '用于第四阶段火山平台合规检查，检查函数引用规范、命名规范、元信息完整性等',
-      color: '#7c3aed',
-      icon: '🌋',
     },
   ];
 
+  /** 统一上传处理：文本文件读取文本，压缩包读取为 base64 */
   const handleStandardUpload = (type, file) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target.result;
-      setEvalStandard(type, {
-        name: file.name,
-        content,
-        size: file.size,
-        uploadedAt: Date.now(),
-      });
-      message.success(`已上传评估标准: ${file.name}`);
-    };
-    reader.readAsText(file);
-    return false; // prevent auto upload
+    const isCompressed = /\.(zip|gz|tgz)$/i.test(file.name);
+    if (isCompressed) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const arr = new Uint8Array(e.target.result);
+        let binary = '';
+        for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]);
+        const base64 = btoa(binary);
+        setEvalStandard(type, {
+          name: file.name, content: null, base64,
+          isCompressed: true, size: file.size, uploadedAt: Date.now(),
+        });
+        message.success(`已上传压缩包: ${file.name}`);
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setEvalStandard(type, {
+          name: file.name, content: e.target.result,
+          isCompressed: false, size: file.size, uploadedAt: Date.now(),
+        });
+        message.success(`已上传评估标准: ${file.name}`);
+      };
+      reader.readAsText(file);
+    }
+    return false; // 阻止自动上传
   };
 
-  const renderEvalStandardsSection = () => (
-    <div>
-      {sectionTitle(
-        '评估标准管理',
-        '上传自定义评估规则 Skill，平台将使用上传的 Skill 替代内置评估逻辑；未上传时自动回退至默认内置规则'
-      )}
+  const renderEvalStandardsSection = () => {
+    const selectedEvalModel = modelConfigs.find((m) => m.id === evalModelId) || null;
 
-      {/* Usage guide */}
-      <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '12px 16px', marginBottom: 20, fontSize: 12, color: '#0c4a6e', lineHeight: 1.7 }}>
-        <strong>使用说明：</strong>
-        <span> 上传 Markdown 格式的评估标准文件（.md/.txt），文件内容将作为对应评估阶段的 System Prompt 传入大模型。</span>
-        <br />
-        <span>评估模块会自动拼接测试数据和 JSON 输出格式要求，你的文件只需定义 <strong>评估维度、评分标准和判断逻辑</strong> 即可。</span>
-      </div>
-
-      <Space direction="vertical" style={{ width: '100%' }} size={16}>
-        {STANDARD_DEFS.map((def) => {
-          const current = evalStandards?.[def.type];
-          return (
-            <div
-              key={def.type}
-              style={{
-                background: '#fff',
-                border: `1px solid #e5e7eb`,
-                borderLeft: `4px solid ${def.color}`,
-                borderRadius: 8,
-                padding: '16px 20px',
-              }}
-            >
-              {/* Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>
-                    {def.icon} {def.title}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3, lineHeight: 1.6 }}>{def.desc}</div>
-                </div>
-                {current ? (
-                  <Tag style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', flexShrink: 0, marginLeft: 12 }}>
-                    已上传
-                  </Tag>
-                ) : (
-                  <Tag style={{ background: '#f9fafb', color: '#9ca3af', border: '1px solid #e5e7eb', flexShrink: 0, marginLeft: 12 }}>
-                    使用内置规则
-                  </Tag>
-                )}
-              </div>
-
-              {/* Current file info */}
-              {current && (
-                <div style={{ background: '#f9fafb', border: '1px solid #f3f4f6', borderRadius: 6, padding: '8px 12px', marginBottom: 10, fontSize: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <span style={{ fontWeight: 600, color: '#374151' }}>📄 {current.name}</span>
-                      <span style={{ color: '#9ca3af', marginLeft: 8 }}>
-                        {(current.size / 1024).toFixed(1)} KB · {new Date(current.uploadedAt).toLocaleDateString('zh-CN')}
-                      </span>
-                    </div>
-                    <Space size={6}>
-                      <Button
-                        size="small"
-                        type="link"
-                        style={{ padding: 0, fontSize: 12 }}
-                        onClick={() => setViewingStandard({ title: def.title, content: current.content })}
-                      >
-                        查看内容
-                      </Button>
-                      <Button
-                        size="small"
-                        type="link"
-                        danger
-                        style={{ padding: 0, fontSize: 12 }}
-                        onClick={() => { clearEvalStandard(def.type); message.success(`已清除「${def.title}」，将使用内置规则`); }}
-                      >
-                        移除
-                      </Button>
-                    </Space>
-                  </div>
-                  <div style={{ marginTop: 6, color: '#6b7280', fontSize: 11, whiteSpace: 'pre', overflow: 'hidden', textOverflow: 'ellipsis', maxHeight: 36 }}>
-                    {current.content.substring(0, 120).replace(/\n/g, ' ')}…
-                  </div>
-                </div>
-              )}
-
-              {/* Upload button */}
-              <Upload
-                accept=".md,.txt,.markdown"
-                beforeUpload={(file) => handleStandardUpload(def.type, file)}
-                showUploadList={false}
-              >
-                <Button size="small" style={{ borderColor: def.color, color: def.color }}>
-                  {current ? '重新上传' : '上传评估标准 Skill'}
-                </Button>
-              </Upload>
-            </div>
-          );
-        })}
-      </Space>
-
-      {/* View content modal */}
-      <Modal
-        title={viewingStandard?.title}
-        open={!!viewingStandard}
-        onCancel={() => setViewingStandard(null)}
-        footer={<Button onClick={() => setViewingStandard(null)}>关闭</Button>}
-        width={720}
-        styles={{ body: { maxHeight: '60vh', overflowY: 'auto', padding: 0 } }}
-      >
-        {viewingStandard && (
-          <pre style={{ margin: 0, padding: '16px 20px', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f9fafb', color: '#374151', lineHeight: 1.7 }}>
-            {viewingStandard.content}
-          </pre>
+    return (
+      <div>
+        {sectionTitle(
+          '评估标准管理',
+          '配置评估专用大模型，上传自定义评估规则 Skill；未上传时自动回退至内置规则'
         )}
-      </Modal>
-    </div>
-  );
+
+        {/* ── 评估模型选择 ── */}
+        <div style={{
+          background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+          padding: '16px 20px', marginBottom: 20,
+        }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: '#111827', marginBottom: 4 }}>评估专用大模型</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+            指定技能评估（Judge / 专项 / 火山）阶段调用的大模型，独立于技能执行模型
+          </div>
+          {modelConfigs.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>
+              暂无已配置模型，请先前往「模型配置」Tab 添加
+            </div>
+          ) : (
+            <Select
+              style={{ width: '100%' }}
+              placeholder="选择评估专用模型"
+              value={evalModelId}
+              onChange={setEvalModelId}
+              allowClear
+              options={modelConfigs.map((m) => ({
+                label: m.displayName || `${m.provider} / ${m.model}`,
+                value: m.id,
+              }))}
+            />
+          )}
+          {selectedEvalModel && (
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+              {selectedEvalModel.provider} · {selectedEvalModel.model}
+            </div>
+          )}
+        </div>
+
+        {/* ── 使用说明 ── */}
+        <div style={{
+          background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8,
+          padding: '12px 16px', marginBottom: 20, fontSize: 12, color: '#4b5563', lineHeight: 1.7,
+        }}>
+          <strong>评估标准说明：</strong>
+          上传 .md / .txt 或包含脚本的压缩包（.zip / .gz / .tgz），文件内容将作为对应阶段的 System Prompt 传入大模型。
+          压缩包中应包含主 SKILL.md 文件。未上传时自动使用内置规则。
+        </div>
+
+        {/* ── 三条评估标准 ── */}
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          {STANDARD_DEFS.map((def) => {
+            const current = evalStandards?.[def.type];
+            const loaded = !!current;
+            return (
+              <div
+                key={def.type}
+                style={{
+                  background: '#fff',
+                  border: '1px solid #e5e7eb',
+                  borderLeft: loaded ? '4px solid #111827' : '4px solid #d1d5db',
+                  borderRadius: 8,
+                  padding: '16px 20px',
+                }}
+              >
+                {/* 标题行 */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>{def.title}</div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3, lineHeight: 1.6 }}>{def.desc}</div>
+                  </div>
+                  {loaded ? (
+                    <Tag style={{ background: '#111827', color: '#fff', border: 'none', flexShrink: 0, marginLeft: 12, borderRadius: 4 }}>
+                      已上传
+                    </Tag>
+                  ) : (
+                    <Tag style={{ background: '#f3f4f6', color: '#9ca3af', border: '1px solid #e5e7eb', flexShrink: 0, marginLeft: 12, borderRadius: 4 }}>
+                      内置规则
+                    </Tag>
+                  )}
+                </div>
+
+                {/* 已上传文件信息 */}
+                {loaded && (
+                  <div style={{
+                    background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6,
+                    padding: '8px 12px', marginBottom: 12, fontSize: 12,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontWeight: 600, color: '#111827' }}>{current.name}</span>
+                        <span style={{ color: '#9ca3af', marginLeft: 8 }}>
+                          {(current.size / 1024).toFixed(1)} KB · {new Date(current.uploadedAt).toLocaleDateString('zh-CN')}
+                        </span>
+                        {current.isCompressed && (
+                          <span style={{ marginLeft: 8, fontSize: 11, color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: 3, padding: '0 5px' }}>压缩包</span>
+                        )}
+                      </div>
+                      <Space size={6}>
+                        {!current.isCompressed && current.content && (
+                          <Button
+                            size="small"
+                            type="link"
+                            style={{ padding: 0, fontSize: 12, color: '#374151' }}
+                            onClick={() => setViewingStandard({ title: def.title, content: current.content })}
+                          >
+                            查看内容
+                          </Button>
+                        )}
+                        <Button
+                          size="small"
+                          type="link"
+                          danger
+                          style={{ padding: 0, fontSize: 12 }}
+                          onClick={() => { clearEvalStandard(def.type); message.success(`已清除「${def.title}」，将使用内置规则`); }}
+                        >
+                          移除
+                        </Button>
+                      </Space>
+                    </div>
+                    {!current.isCompressed && current.content && (
+                      <div style={{ marginTop: 6, color: '#6b7280', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
+                        {current.content.substring(0, 120).replace(/\n/g, ' ')}…
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 上传按钮 */}
+                <Upload
+                  accept=".md,.txt,.markdown,.zip,.gz,.tgz"
+                  beforeUpload={(file) => handleStandardUpload(def.type, file)}
+                  showUploadList={false}
+                >
+                  <Button size="small" style={{ borderColor: '#d1d5db', color: '#374151' }}>
+                    {loaded ? '重新上传' : '上传评估标准 Skill'}
+                  </Button>
+                </Upload>
+              </div>
+            );
+          })}
+        </Space>
+
+        {/* 查看内容 Modal */}
+        <Modal
+          title={viewingStandard?.title}
+          open={!!viewingStandard}
+          onCancel={() => setViewingStandard(null)}
+          footer={<Button onClick={() => setViewingStandard(null)}>关闭</Button>}
+          width={720}
+          styles={{ body: { maxHeight: '60vh', overflowY: 'auto', padding: 0 } }}
+        >
+          {viewingStandard && (
+            <pre style={{ margin: 0, padding: '16px 20px', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f9fafb', color: '#374151', lineHeight: 1.7 }}>
+              {viewingStandard.content}
+            </pre>
+          )}
+        </Modal>
+      </div>
+    );
+  };
 
   const tabs = [
     { key: 'models', label: '模型配置' },

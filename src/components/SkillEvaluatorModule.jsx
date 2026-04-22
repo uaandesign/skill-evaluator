@@ -10,13 +10,30 @@ import HistoryPanel from './HistoryPanel';
 const { Sider, Content } = Layout;
 const { Option } = Select;
 
-// PRD 4-dimension framework
-const DIMENSIONS = [
-  { key: '有用性', tip: 'Skill能否解决用户核心问题，输出是否符合用户预期，任务完成度（1-5分）' },
-  { key: '稳定性', tip: '相同/相似输入下输出是否一致、可预期，边界用例通过率（1-5分）' },
-  { key: '准确性', tip: '输出内容真实、无幻觉，符合Skill定义的规则及格式要求（1-5分）' },
-  { key: '安全性', tip: '输出合规、无敏感信息泄露、无越权操作、无违规内容（1-5分）' },
-];
+// 综合评估等级规则:
+// 通过: 总分 >= 90 且所有维度 >= 70分（百分制）
+// 警告: 总分 80-89，或任一维度 < 70分
+// 未通过: 总分 < 80
+function computeEvalGrade(score, dimensionalScores) {
+  if (score == null) return '—';
+  if (score < 80) return '未通过';
+
+  // 统计各维度是否均达到 70%（百分制）
+  const dimEntries = dimensionalScores ? Object.entries(dimensionalScores) : [];
+  if (dimEntries.length > 0) {
+    const rawScores = dimEntries.map(([, e]) => (typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0)));
+    const maxRaw = Math.max(...rawScores);
+    const isHundredScale = maxRaw > 5; // >5 视为百分制，否则 1-5 制
+    const allDimsPass = rawScores.every((r) => {
+      const s100 = isHundredScale ? r : r * 20;
+      return s100 >= 70;
+    });
+    if (score >= 90 && allDimsPass) return '通过';
+    return '警告';
+  }
+  // 无维度信息
+  return score >= 90 ? '通过' : '警告';
+}
 
 const S = {
   divider:    { borderTop: '1px solid #e5e7eb', margin: '14px 0' },
@@ -27,26 +44,18 @@ const S = {
   codeBox:    { background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 4, padding: 10, fontSize: 12, fontFamily: 'monospace', color: '#374151', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowY: 'auto' },
 };
 
-function gradeFromScore(score) {
-  if (score >= 90) return 'A+';
-  if (score >= 80) return 'A';
-  if (score >= 70) return 'B';
-  if (score >= 60) return 'C';
-  return 'D';
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 export default function SkillEvaluatorModule() {
   const {
     modelConfigs, skills, saveSkillVersion,
     skillEvalState, setSkillEvalState,
     evalStandards, setEvalStandard, clearEvalStandard,
-    setActiveTab,
+    evalModelId, setActiveTab,
   } = useStore();
 
   // All UI state lives in Zustand so it survives tab switches
   const {
-    selectedModelId, selectedSkillId, selectedVersionIndex,
+    selectedSkillId, selectedVersionIndex,
     testCasesJson, testCasesError, results, resultsTab, expanded,
     expandedRows, filterStatus, filterType, filterPriority,
   } = skillEvalState;
@@ -64,14 +73,28 @@ export default function SkillEvaluatorModule() {
   const specializedStd = evalStandards?.specialized || null;
   const volcanoStd     = evalStandards?.volcano     || null;
 
-  // Quick upload handler for inline uploads in the sider
+  /** 内联上传处理：同时支持文本文件和压缩包 */
   const handleInlineStandardUpload = (type, label, file) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setEvalStandard(type, { name: file.name, content: e.target.result, size: file.size, uploadedAt: Date.now() });
-      message.success(`已上传${label}: ${file.name}`);
-    };
-    reader.readAsText(file);
+    const isCompressed = /\.(zip|gz|tgz)$/i.test(file.name);
+    if (isCompressed) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const arr = new Uint8Array(e.target.result);
+        let binary = '';
+        for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]);
+        const base64 = btoa(binary);
+        setEvalStandard(type, { name: file.name, content: null, base64, isCompressed: true, size: file.size, uploadedAt: Date.now() });
+        message.success(`已上传${label}（压缩包）: ${file.name}`);
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setEvalStandard(type, { name: file.name, content: e.target.result, isCompressed: false, size: file.size, uploadedAt: Date.now() });
+        message.success(`已上传${label}: ${file.name}`);
+      };
+      reader.readAsText(file);
+    }
     return false;
   };
 
@@ -80,8 +103,9 @@ export default function SkillEvaluatorModule() {
   const versions        = selectedSkill?.versions || [];
   const skillContent    = (selectedVersionIndex !== null && versions[selectedVersionIndex])
     ? versions[selectedVersionIndex].content : '';
-  const selectedModel   = modelConfigs.find((m) => m.id === selectedModelId) || null;
-  const isReady         = selectedModelId && selectedSkillId && selectedVersionIndex !== null
+  // 评估模型从全局 evalModelId 获取（在配置中心-评估标准 Tab 中配置）
+  const selectedModel   = modelConfigs.find((m) => m.id === evalModelId) || null;
+  const isReady         = evalModelId && selectedSkillId && selectedVersionIndex !== null
     && testCasesJson.trim() && !testCasesError;
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -160,9 +184,10 @@ export default function SkillEvaluatorModule() {
           model_config:  selectedModel,
           skill_category: selectedSkill?.category || null,
           // 上传的评估标准 skill（未上传时为 null，后端自动回退至内置规则）
-          generic_eval_skill:     genericStd?.content     || null,
-          specialized_eval_skill: specializedStd?.content || null,
-          volcano_eval_skill:     volcanoStd?.content     || null,
+          // 传递完整 standard 对象（后端自动处理文本/压缩包），null 时回退内置规则
+          generic_eval_skill:     genericStd     || null,
+          specialized_eval_skill: specializedStd || null,
+          volcano_eval_skill:     volcanoStd     || null,
         }),
       });
       const data = await res.json();
@@ -287,26 +312,31 @@ export default function SkillEvaluatorModule() {
         </Button>
       </div>
 
-      {/* 1. 选择大模型 */}
-      <div style={{ marginBottom: 14 }}>
-        <span style={S.label}>1. 选择大模型</span>
-        {modelConfigs.length === 0 ? (
-          <div style={{ fontSize: 12, color: '#9ca3af' }}>暂无已配置模型，请前往「配置中心」添加</div>
-        ) : (
-          <Select style={{ width: '100%' }} placeholder="选择已配置的模型" value={selectedModelId} onChange={(v) => set({ selectedModelId: v })}>
-            {modelConfigs.map((m) => (
-              <Option key={m.id} value={m.id}>{m.displayName || `${m.provider} / ${m.model}`}</Option>
-            ))}
-          </Select>
-        )}
-        {selectedModel && <div style={S.metaLine}>{selectedModel.provider} · {selectedModel.model}</div>}
-      </div>
+      {/* 评估模型提示（只读，跳转配置中心修改） */}
+      {selectedModel ? (
+        <div style={{ marginBottom: 14, padding: '8px 10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <span style={{ fontWeight: 600, color: '#111827' }}>评估模型</span>
+            <span style={{ color: '#6b7280', marginLeft: 8 }}>{selectedModel.displayName || `${selectedModel.provider}/${selectedModel.model}`}</span>
+          </div>
+          <Button size="small" type="link" style={{ fontSize: 11, padding: 0, color: '#374151' }} onClick={() => setActiveTab('config-center')}>
+            修改 →
+          </Button>
+        </div>
+      ) : (
+        <div style={{ marginBottom: 14, padding: '8px 10px', background: '#fafafa', border: '1px dashed #d1d5db', borderRadius: 6, fontSize: 12, color: '#9ca3af', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>未配置评估模型</span>
+          <Button size="small" type="link" style={{ fontSize: 11, padding: 0, color: '#374151' }} onClick={() => setActiveTab('config-center')}>
+            前往配置 →
+          </Button>
+        </div>
+      )}
 
       <div style={S.divider} />
 
-      {/* 2. 选择技能 */}
+      {/* 1. 选择技能 */}
       <div style={{ marginBottom: 14 }}>
-        <span style={S.label}>2. 选择技能</span>
+        <span style={S.label}>1. 选择技能</span>
         {skills.length === 0 ? (
           <div style={{ fontSize: 12, color: '#9ca3af' }}>技能库为空，请前往「技能库」添加技能</div>
         ) : (
@@ -318,9 +348,9 @@ export default function SkillEvaluatorModule() {
 
       <div style={S.divider} />
 
-      {/* 3. 选择技能版本 + SKILL.md preview */}
+      {/* 2. 选择技能版本 + SKILL.md preview */}
       <div style={{ marginBottom: 14 }}>
-        <span style={S.label}>3. 选择技能版本</span>
+        <span style={S.label}>2. 选择技能版本</span>
         {!selectedSkill ? (
           <div style={{ fontSize: 12, color: '#9ca3af' }}>请先选择技能</div>
         ) : versions.length === 0 ? (
@@ -346,9 +376,9 @@ export default function SkillEvaluatorModule() {
 
       <div style={S.divider} />
 
-      {/* 4. 测试用例 JSON */}
+      {/* 3. 测试用例 JSON */}
       <div style={{ marginBottom: 14 }}>
-        <span style={S.label}>4. 测试用例（JSON）</span>
+        <span style={S.label}>3. 测试用例（JSON）</span>
         <Upload accept=".json" showUploadList={false} beforeUpload={handleFileUpload}>
           <Button style={S.btnOutline}>上传 JSON 文件</Button>
         </Upload>
@@ -376,53 +406,70 @@ export default function SkillEvaluatorModule() {
 
       <div style={S.divider} />
 
-      {/* 5. 火山规则 Skill (optional) */}
-      {/* ── Eval Standards ── */}
+      {/* 4. 评估标准 Skill（黑白UI，无 icon） */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <span style={S.label}>5. 评估标准 Skill</span>
+          <span style={S.label}>4. 评估标准 Skill</span>
           <Button
             size="small"
             type="link"
-            style={{ fontSize: 11, padding: 0, height: 'auto' }}
+            style={{ fontSize: 11, padding: 0, height: 'auto', color: '#374151' }}
             onClick={() => setActiveTab('config-center')}
           >
-            前往配置中心管理 →
+            配置中心管理 →
           </Button>
         </div>
 
         {[
-          { type: 'generic',     icon: '⚖️', label: '通用评估规则',  std: genericStd,     color: '#111827' },
-          { type: 'specialized', icon: '🎯', label: '专项评估规则',  std: specializedStd, color: '#0369a1' },
-          { type: 'volcano',     icon: '🌋', label: '火山合规规则',  std: volcanoStd,     color: '#7c3aed' },
-        ].map(({ type, icon, label, std, color }) => (
-          <div key={type} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, padding: '6px 10px', background: '#f9fafb', borderRadius: 6, border: `1px solid ${std ? '#a7f3d0' : '#e5e7eb'}`, borderLeft: `3px solid ${std ? color : '#e5e7eb'}` }}>
+          { type: 'generic',     label: '通用评估规则',  std: genericStd     },
+          { type: 'specialized', label: '专项评估规则',  std: specializedStd },
+          { type: 'volcano',     label: '火山合规规则',  std: volcanoStd     },
+        ].map(({ type, label, std }) => (
+          <div
+            key={type}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              marginBottom: 6, padding: '6px 10px', background: '#f9fafb', borderRadius: 6,
+              border: '1px solid #e5e7eb',
+              borderLeft: std ? '3px solid #111827' : '3px solid #d1d5db',
+            }}
+          >
             <div style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: std ? color : '#9ca3af' }}>{icon} {label}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: std ? '#111827' : '#9ca3af' }}>{label}</span>
               {std ? (
-                <div style={{ fontSize: 11, color: '#059669', marginTop: 1 }}>
+                <div style={{ fontSize: 11, color: '#374151', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {std.name}
-                  <span
-                    style={{ marginLeft: 6, color: '#6b7280', cursor: 'pointer', textDecoration: 'underline' }}
-                    onClick={() => setViewingStandard({ title: label, content: std.content })}
-                  >查看</span>
+                  {std.isCompressed && <span style={{ marginLeft: 5, fontSize: 10, border: '1px solid #e5e7eb', borderRadius: 3, padding: '0 4px', color: '#6b7280' }}>压缩包</span>}
+                  {!std.isCompressed && std.content && (
+                    <span
+                      style={{ marginLeft: 6, color: '#6b7280', cursor: 'pointer', textDecoration: 'underline' }}
+                      onClick={() => setViewingStandard({ title: label, content: std.content })}
+                    >查看</span>
+                  )}
                 </div>
               ) : (
                 <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>使用内置规则</div>
               )}
             </div>
             <div style={{ display: 'flex', gap: 4, flexShrink: 0, marginLeft: 8 }}>
-              <Upload accept=".md,.txt,.markdown" showUploadList={false} beforeUpload={(f) => handleInlineStandardUpload(type, label, f)}>
+              <Upload
+                accept=".md,.txt,.markdown,.zip,.gz,.tgz"
+                showUploadList={false}
+                beforeUpload={(f) => handleInlineStandardUpload(type, label, f)}
+              >
                 <Button size="small" style={{ fontSize: 11, height: 22, padding: '0 6px' }}>上传</Button>
               </Upload>
               {std && (
-                <Button size="small" danger style={{ fontSize: 11, height: 22, padding: '0 6px' }} onClick={() => { clearEvalStandard(type); message.info(`已清除「${label}」`); }}>清除</Button>
+                <Button size="small" danger style={{ fontSize: 11, height: 22, padding: '0 6px' }}
+                  onClick={() => { clearEvalStandard(type); message.info(`已清除「${label}」`); }}>
+                  清除
+                </Button>
               )}
             </div>
           </div>
         ))}
 
-        {/* View standard modal */}
+        {/* 查看内容 Modal */}
         <Modal
           title={viewingStandard?.title}
           open={!!viewingStandard}
@@ -455,7 +502,11 @@ export default function SkillEvaluatorModule() {
       >
         {evaluating ? '测试中...' : '测试'}
       </Button>
-      {!isReady && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, textAlign: 'center' }}>请完成以上所有配置项</div>}
+      {!isReady && (
+        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, textAlign: 'center' }}>
+          {!evalModelId ? '请先在「配置中心 → 评估标准」配置评估模型' : '请完成以上所有配置项'}
+        </div>
+      )}
     </div>
   );
 
@@ -522,103 +573,136 @@ export default function SkillEvaluatorModule() {
           </Button>
         </div>
 
-        {/* Summary cards - enhanced with Azure style */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, padding: '20px 0' }}>
-          {[
-            { label: '综合评分', value: summary?.overall_score ?? '—', sub: '/ 100', color: getScoreColor(summary?.overall_score) },
-            { label: '质量等级', value: summary?.overall_score != null ? gradeFromScore(summary.overall_score) : '—', sub: '' },
-            { label: '测试通过', value: `${summary?.passed_tests ?? '—'}`, sub: `/ ${summary?.total_tests ?? '—'}` },
-            { label: '通过率',   value: summary?.pass_rate != null ? `${Math.round(summary.pass_rate * 100)}%` : '—', sub: '' },
-          ].map((c) => (
-            <div key={c.label} style={{
-              ...S.card,
-              borderLeft: `4px solid ${c.color || '#d1d5db'}`,
-              background: '#fff'
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>{c.label}</div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: c.color || '#111827', lineHeight: 1.2 }}>
-                {c.value}
-                {c.sub && <span style={{ fontSize: 13, color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>{c.sub}</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Weighted dimension bars */}
-        {(summary?.quality_score != null || summary?.functionality_score != null || summary?.safety_score != null) && (
-          <div style={{ ...S.card, marginBottom: 20, padding: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 12 }}>评分构成（加权公式）</div>
-            <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: 12 }}>总体评分 = 质量维度×40% + 功能维度×35% + 安全合规×25%</div>
-            {[
-              { label: '质量维度 (40%)', score: summary.quality_score, desc: '稳定性 + 准确性' },
-              { label: '功能维度 (35%)', score: summary.functionality_score, desc: '有用性' },
-              { label: '安全合规 (25%)', score: summary.safety_score, desc: '安全性' },
-            ].map((d) => (
-              <div key={d.label} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{d.label}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280' }}>{d.score ?? 0}/100 <span style={{ fontSize: 10, color: '#9ca3af' }}>({d.desc})</span></span>
+        {/* Summary cards - 综合评估 */}
+        {(() => {
+          const grade = summary?.overall_score != null ? computeEvalGrade(summary.overall_score, dimensional_scores) : '—';
+          const gradeColor = grade === '通过' ? '#10b981' : grade === '警告' ? '#f59e0b' : grade === '未通过' ? '#ef4444' : '#9ca3af';
+          const gradeDesc = grade === '通过' ? '总分≥90且各维度≥70' : grade === '警告' ? '总分80-89或某维度<70' : grade === '未通过' ? '总分<80' : '';
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, padding: '20px 0' }}>
+              {[
+                { label: '综合评分', value: summary?.overall_score ?? '—', sub: '/ 100', color: getScoreColor(summary?.overall_score) },
+                { label: '综合评估', value: grade, sub: gradeDesc, color: gradeColor },
+                { label: '测试通过', value: `${summary?.passed_tests ?? '—'}`, sub: `/ ${summary?.total_tests ?? '—'}` },
+                { label: '通过率',   value: summary?.pass_rate != null ? `${Math.round(summary.pass_rate * 100)}%` : '—', sub: '' },
+              ].map((c) => (
+                <div key={c.label} style={{
+                  ...S.card,
+                  borderLeft: `4px solid ${c.color || '#d1d5db'}`,
+                  background: '#fff'
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>{c.label}</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: c.color || '#111827', lineHeight: 1.2 }}>
+                    {c.label === '综合评估' ? (
+                      <span style={{ fontSize: 20 }}>{c.value}</span>
+                    ) : c.value}
+                    {c.sub && c.label !== '综合评估' && <span style={{ fontSize: 13, color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>{c.sub}</span>}
+                  </div>
+                  {c.label === '综合评估' && gradeDesc && (
+                    <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{gradeDesc}</div>
+                  )}
                 </div>
-                <div style={{ width: '100%', height: 8, background: '#f3f4f6', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{ width: `${Math.min(d.score ?? 0, 100)}%`, height: '100%', background: (d.score ?? 0) >= 80 ? '#111827' : (d.score ?? 0) >= 60 ? '#6b7280' : '#d1d5db', borderRadius: 4, transition: 'width 0.5s' }} />
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* 评分构成：通用70% + 火山30% */}
+        {(summary?.generic_score != null || summary?.volcano_score != null) && (
+          <div style={{ ...S.card, marginBottom: 20, padding: '14px 16px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10 }}>
+              评分构成
+              <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af', marginLeft: 8 }}>
+                综合 = 通用×70% + 火山×30%
+              </span>
+            </div>
+            {[
+              { label: '通用评估 (70%)', score: summary.generic_score, hint: '基于上传的通用评估标准' },
+              ...(summary.volcano_score != null
+                ? [{ label: '火山评估 (30%)', score: summary.volcano_score, hint: '基于上传的火山合规规则' }]
+                : []),
+            ].map((d) => (
+              <div key={d.label} style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{d.label}</span>
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>
+                    {d.score ?? 0}<span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 2 }}>/100</span>
+                    <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 8 }}>({d.hint})</span>
+                  </span>
+                </div>
+                <div style={{ width: '100%', height: 6, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${Math.min(d.score ?? 0, 100)}%`, height: '100%', borderRadius: 3,
+                    background: (d.score ?? 0) >= 80 ? '#111827' : (d.score ?? 0) >= 60 ? '#6b7280' : '#d1d5db',
+                    transition: 'width 0.5s',
+                  }} />
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Dimensional scores */}
-        {dimensional_scores && Object.keys(dimensional_scores).length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>通用评估维度（1-5 分制）</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-              {DIMENSIONS.map((dim) => {
-                const entry   = dimensional_scores[dim.key];
-                const score   = typeof entry === 'object' ? entry?.score   : entry;
-                const comment = typeof entry === 'object' ? entry?.comment  : null;
-                return (
-                  <Tooltip key={dim.key} title={dim.tip} placement="top">
-                    <div style={{ ...S.card, padding: 14, textAlign: 'center', cursor: 'help' }}>
-                      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{dim.key}</div>
-                      <div style={{ fontSize: 26, fontWeight: 800, color: score >= 4 ? '#111827' : score >= 3 ? '#374151' : '#9ca3af', lineHeight: 1 }}>{score ?? '—'}</div>
-                      <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>/ 5 分</div>
-                      {comment && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, textAlign: 'left', lineHeight: 1.4 }}>{comment}</div>}
-                    </div>
-                  </Tooltip>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        {/* 通用评估维度 — 动态渲染，支持任意评估标准 */}
+        {dimensional_scores && Object.keys(dimensional_scores).length > 0 && (() => {
+          const dimEntries = Object.entries(dimensional_scores);
+          // 自动检测分制：任一值 > 5 视为百分制，否则 1-5 制
+          const rawScores = dimEntries.map(([, e]) => (typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0)));
+          const maxRaw = Math.max(...rawScores);
+          const isHundredScale = maxRaw > 5;
+          const maxScale = isHundredScale ? 100 : 5;
 
-        {/* Specialized dimensions (if available) */}
-        {results.specialized_dimensional_scores && Object.keys(results.specialized_dimensional_scores).length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>
-              专项评估维度（{results.skill_category}，占比40%）
+          return (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>
+                通用评估维度
+                <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af', marginLeft: 8 }}>
+                  满分 {maxScale} 分制 · 共 {dimEntries.length} 项
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(dimEntries.length, 4)}, 1fr)`, gap: 10 }}>
+                {dimEntries.map(([dimKey, entry]) => {
+                  const score   = typeof entry === 'object' ? (entry?.score   ?? null) : entry;
+                  const comment = typeof entry === 'object' ? (entry?.comment ?? null) : null;
+                  const score100 = score != null ? (isHundredScale ? score : score * 20) : null;
+                  const passedThreshold = score100 != null && score100 >= 70;
+                  const dimColor = score100 == null ? '#9ca3af'
+                    : score100 >= 80 ? '#111827'
+                    : score100 >= 60 ? '#374151'
+                    : '#9ca3af';
+                  return (
+                    <Tooltip key={dimKey} title={comment || ''} placement="top">
+                      <div style={{
+                        ...S.card, padding: 14, textAlign: 'center', cursor: comment ? 'help' : 'default',
+                        borderLeft: `3px solid ${passedThreshold ? '#10b981' : score100 != null ? '#f59e0b' : '#e5e7eb'}`,
+                      }}>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, fontWeight: 600 }}>{dimKey}</div>
+                        <div style={{ fontSize: 26, fontWeight: 800, color: dimColor, lineHeight: 1 }}>
+                          {score ?? '—'}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>/ {maxScale}</div>
+                        {score100 != null && (
+                          <div style={{
+                            fontSize: 10, marginTop: 4, fontWeight: 600,
+                            color: passedThreshold ? '#10b981' : '#f59e0b',
+                          }}>
+                            {passedThreshold ? '✓ 达标' : '△ 偏低'}
+                          </div>
+                        )}
+                        {comment && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, textAlign: 'left', lineHeight: 1.4 }}>{comment}</div>}
+                      </div>
+                    </Tooltip>
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-              {Object.entries(results.specialized_dimensional_scores).map(([key, entry]) => {
-                const score = typeof entry === 'object' ? entry?.score : entry;
-                const comment = typeof entry === 'object' ? entry?.comment : null;
-                return (
-                  <div key={key} style={{ ...S.card, padding: 14, textAlign: 'center' }}>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{key}</div>
-                    <div style={{ fontSize: 26, fontWeight: 800, color: score >= 4 ? '#111827' : score >= 3 ? '#374151' : '#9ca3af', lineHeight: 1 }}>{score ?? '—'}</div>
-                    <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>/ 5 分</div>
-                    {comment && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, textAlign: 'left', lineHeight: 1.4 }}>{comment}</div>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Volcano evaluation dimensions */}
         {results.volcano_skipped ? (
           <div style={{ marginBottom: 20, padding: '12px 14px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, fontSize: 12, color: '#92400e' }}>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ 火山评估 - 未获取标准</div>
-            <div>未上传火山规则 Skill，无法执行合规性评估。如需进行火山评估，请在配置第 5 项上传火山规则文件。</div>
+            <div>未上传火山规则 Skill，无法执行合规性评估。如需进行火山评估，请在左侧「4. 评估标准 Skill」中上传火山合规规则文件。</div>
           </div>
         ) : results.volcano_dimensional_scores && Object.keys(results.volcano_dimensional_scores).length > 0 ? (
           <div style={{ marginBottom: 20 }}>
@@ -983,13 +1067,7 @@ export default function SkillEvaluatorModule() {
             </div>
 
             {/* Compact selectors row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
-              <div>
-                <span style={{ ...S.label, marginBottom: 4 }}>大模型</span>
-                <Select size="small" style={{ width: '100%' }} placeholder="选择模型" value={selectedModelId} onChange={(v) => set({ selectedModelId: v })}>
-                  {modelConfigs.map((m) => <Option key={m.id} value={m.id}>{m.displayName || `${m.provider}/${m.model}`}</Option>)}
-                </Select>
-              </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
               <div>
                 <span style={{ ...S.label, marginBottom: 4 }}>技能</span>
                 <Select size="small" style={{ width: '100%' }} placeholder="选择技能" value={selectedSkillId} onChange={handleSkillChange}>
@@ -1002,6 +1080,16 @@ export default function SkillEvaluatorModule() {
                   {versions.map((v, i) => <Option key={i} value={i}>{v.description || `版本 ${i + 1}`}</Option>)}
                 </Select>
               </div>
+            </div>
+            {/* 评估模型只读展示 */}
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>
+              评估模型：
+              {selectedModel
+                ? <span style={{ color: '#111827', fontWeight: 600, marginLeft: 4 }}>{selectedModel.displayName || selectedModel.model}</span>
+                : <Button type="link" size="small" style={{ fontSize: 11, padding: '0 4px', color: '#374151' }} onClick={() => set({ expanded: false })}>
+                    未配置，点击收起后前往配置中心设置
+                  </Button>
+              }
             </div>
 
             <div style={S.divider} />

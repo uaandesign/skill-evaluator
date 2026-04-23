@@ -464,11 +464,11 @@ export default function SkillEvaluatorModule() {
               onChange={handleJsonChange}
               style={{
                 width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 8, resize: 'vertical',
-                border: testCasesError ? '1px solid #ef4444' : '1px solid #e5e7eb',
+                border: testCasesError ? '1px solid #374151' : '1px solid #e5e7eb',
                 borderRadius: 4, color: '#374151', background: '#f9fafb', boxSizing: 'border-box', outline: 'none',
               }}
             />
-            {testCasesError && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>{testCasesError}</div>}
+            {testCasesError && <div style={{ fontSize: 11, color: '#374151', marginTop: 3 }}>{testCasesError}</div>}
           </>
         )}
       </div>
@@ -594,8 +594,8 @@ export default function SkillEvaluatorModule() {
     // ── 综合等级计算 ─────────────────────────────────────────────────────────
     const grade = summary?.overall_score != null
       ? computeEvalGrade(summary.overall_score, dimensional_scores) : '—';
-    const gradeColor = grade === '通过' ? '#10b981' : grade === '警告' ? '#f59e0b'
-      : grade === '未通过' ? '#ef4444' : '#9ca3af';
+    const gradeColor = grade === '通过' ? '#111827' : grade === '警告' ? '#6b7280'
+      : grade === '未通过' ? '#374151' : '#9ca3af';
     const letter = scoreToLetter(summary?.overall_score);
 
     // ── 构建雷达图用的维度数组 ───────────────────────────────────────────────
@@ -637,7 +637,7 @@ export default function SkillEvaluatorModule() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {results.evaluation_mode === 'real' && (
               <>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: results.judge_skipped ? '#f59e0b' : '#10b981' }} />
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: results.judge_skipped ? '#6b7280' : '#111827' }} />
                 <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>
                   {results.judge_skipped ? '部分执行评估' : '真实执行评估'} · {selectedModel?.displayName || '配置模型'}
                 </span>
@@ -700,8 +700,8 @@ export default function SkillEvaluatorModule() {
                   position: 'absolute', left: 0, top: 0,
                   width: `${Math.min(summary?.overall_score ?? 0, 100)}%`,
                   height: '100%', borderRadius: 6,
-                  background: (summary?.overall_score ?? 0) >= 90 ? '#10b981'
-                    : (summary?.overall_score ?? 0) >= 75 ? '#f59e0b' : '#ef4444',
+                  background: (summary?.overall_score ?? 0) >= 90 ? '#111827'
+                    : (summary?.overall_score ?? 0) >= 75 ? '#6b7280' : '#374151',
                   transition: 'width 0.8s ease',
                 }} />
                 {/* 阈值标记 */}
@@ -740,7 +740,7 @@ export default function SkillEvaluatorModule() {
                     <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3 }}>
                       <div style={{
                         width: `${Math.min(d.score ?? 0, 100)}%`, height: '100%', borderRadius: 3,
-                        background: (d.score ?? 0) >= 80 ? '#10b981' : (d.score ?? 0) >= 60 ? '#f59e0b' : '#ef4444',
+                        background: (d.score ?? 0) >= 80 ? '#111827' : (d.score ?? 0) >= 60 ? '#6b7280' : '#374151',
                         transition: 'width 0.6s',
                       }} />
                     </div>
@@ -805,7 +805,7 @@ export default function SkillEvaluatorModule() {
                   const passedThreshold = score100 != null && score100 >= 70;
                   const engName = DIM_ENGLISH[dimKey] || dimKey.toUpperCase().replace(/\s+/g, '_').slice(0, 14);
                   const barColor = score100 == null ? '#d1d5db'
-                    : passedThreshold ? '#10b981' : score100 >= 50 ? '#f59e0b' : '#ef4444';
+                    : passedThreshold ? '#111827' : score100 >= 50 ? '#6b7280' : '#374151';
 
                   return (
                     <div key={dimKey} style={{
@@ -833,7 +833,7 @@ export default function SkillEvaluatorModule() {
                       </div>
                       {/* 达标状态 */}
                       {score100 != null && (
-                        <div style={{ fontSize: 10, fontWeight: 600, color: passedThreshold ? '#10b981' : '#f59e0b', marginBottom: comment ? 6 : 0 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: passedThreshold ? '#111827' : '#6b7280', marginBottom: comment ? 6 : 0 }}>
                           {passedThreshold ? `✓ 达标 (${score100}%)` : `△ 偏低 (${score100}%)`}
                         </div>
                       )}
@@ -853,7 +853,7 @@ export default function SkillEvaluatorModule() {
 
         {/* ═══════════════════════ 火山评估维度 (Image 2 同款样式) ════════════ */}
         {results.volcano_skipped ? (
-          <div style={{ marginBottom: 20, padding: '12px 14px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, fontSize: 12, color: '#92400e' }}>
+          <div style={{ marginBottom: 20, padding: '12px 14px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, color: '#374151' }}>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ 火山评估 - 未获取标准</div>
             <div>未上传火山规则 Skill，如需进行火山评估，请在左侧「4. 评估标准 Skill」中上传火山合规规则文件。</div>
           </div>
@@ -902,7 +902,7 @@ export default function SkillEvaluatorModule() {
                     : isVolcHundred ? score : score * 20;
                   const passed  = score100 != null && score100 >= 70;
                   const barColor = score100 == null ? '#d1d5db'
-                    : passed ? '#059669' : score100 >= 50 ? '#d97706' : '#dc2626';
+                    : passed ? '#111827' : score100 >= 50 ? '#6b7280' : '#374151';
                   const engName = DIM_ENGLISH[key] || key.toUpperCase().replace(/\s+/g, '_').slice(0, 14);
                   const tooltipText = issues?.length ? issues.join('; ') : comment || '';
 
@@ -927,7 +927,7 @@ export default function SkillEvaluatorModule() {
                           <div style={{ width: `${score100 ?? 0}%`, height: '100%', borderRadius: 2, background: barColor, transition: 'width 0.6s' }} />
                         </div>
                         {score100 != null && (
-                          <div style={{ fontSize: 10, fontWeight: 600, color: passed ? '#059669' : '#d97706', marginBottom: comment ? 6 : 0 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: passed ? '#111827' : '#6b7280', marginBottom: comment ? 6 : 0 }}>
                             {passed ? `✓ 达标 (${score100}%)` : `△ 偏低 (${score100}%)`}
                           </div>
                         )}
@@ -940,7 +940,7 @@ export default function SkillEvaluatorModule() {
                         {issues?.length > 0 && (
                           <div style={{ marginTop: 6 }}>
                             {issues.map((iss, idx) => (
-                              <div key={idx} style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>· {iss}</div>
+                              <div key={idx} style={{ fontSize: 10, color: '#374151', marginTop: 2 }}>· {iss}</div>
                             ))}
                           </div>
                         )}
@@ -959,9 +959,9 @@ export default function SkillEvaluatorModule() {
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
                         <span style={{
                           fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
-                          background: fix.priority === '高' ? '#fef2f2' : fix.priority === '中' ? '#fff7ed' : '#f9fafb',
-                          color: fix.priority === '高' ? '#b91c1c' : fix.priority === '中' ? '#92400e' : '#6b7280',
-                          border: `1px solid ${fix.priority === '高' ? '#fecaca' : fix.priority === '中' ? '#fed7aa' : '#e5e7eb'}`,
+                          background: fix.priority === '高' ? '#f9fafb' : fix.priority === '中' ? '#f9fafb' : '#f9fafb',
+                          color: fix.priority === '高' ? '#374151' : fix.priority === '中' ? '#374151' : '#6b7280',
+                          border: `1px solid ${fix.priority === '高' ? '#e5e7eb' : fix.priority === '中' ? '#e5e7eb' : '#e5e7eb'}`,
                         }}>{fix.priority}优先</span>
                         <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{fix.dimension}</span>
                       </div>
@@ -989,8 +989,8 @@ export default function SkillEvaluatorModule() {
             {results.optimization_suggestions.slice(0, 3).map((sug, i) => {
               const isHigh = sug.priority === 'high' || sug.priority === '高';
               const isMid  = sug.priority === 'medium' || sug.priority === '中';
-              const badge  = isHigh ? { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca', label: 'High' }
-                           : isMid  ? { bg: '#fff7ed', color: '#92400e', border: '#fed7aa', label: 'Med'  }
+              const badge  = isHigh ? { bg: '#f9fafb', color: '#374151', border: '#e5e7eb', label: 'High' }
+                           : isMid  ? { bg: '#f9fafb', color: '#374151', border: '#e5e7eb', label: 'Med'  }
                            :          { bg: '#f9fafb', color: '#6b7280', border: '#e5e7eb', label: 'Low'  };
               return (
                 <div key={i} style={{
@@ -1002,7 +1002,7 @@ export default function SkillEvaluatorModule() {
                       S-{i + 1}
                     </span>
                     {sug.dimension && (
-                      <span style={{ fontSize: 10, padding: '1px 6px', background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', borderRadius: 4, fontWeight: 600 }}>
+                      <span style={{ fontSize: 10, padding: '1px 6px', background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 4, fontWeight: 600 }}>
                         {sug.dimension}
                       </span>
                     )}
@@ -1013,7 +1013,7 @@ export default function SkillEvaluatorModule() {
                       {sug.issue || sug.suggestion}
                     </span>
                     {sug.expected_impact && (
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', flexShrink: 0 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#374151', flexShrink: 0 }}>
                         +{sug.expected_impact}
                       </span>
                     )}
@@ -1118,15 +1118,15 @@ export default function SkillEvaluatorModule() {
                        onClick={() => set({ expandedRows: { ...expandedRows, [rowKey]: !isExpanded } })}>
                     <span style={{
                       fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 3, flexShrink: 0,
-                      background: r.passed ? '#f0fdf4' : '#fef2f2',
-                      color: r.passed ? '#166534' : '#b91c1c',
-                      border: `1px solid ${r.passed ? '#bbf7d0' : '#fecaca'}`,
+                      background: r.passed ? '#f3f4f6' : '#f9fafb',
+                      color: r.passed ? '#111827' : '#374151',
+                      border: `1px solid ${r.passed ? '#d1d5db' : '#e5e7eb'}`,
                     }}>{r.passed ? '通过' : '失败'}</span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: '#111827', flex: 1 }}>
                       {r.id ? `#${r.id} ` : ''}{r.name || '未命名用例'}
                     </span>
                     {r.test_type && <span style={{ fontSize: 10, color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: 3, padding: '1px 5px' }}>{r.test_type}</span>}
-                    {r.priority  && <span style={{ fontSize: 10, color: r.priority === '高' ? '#92400e' : '#6b7280', border: '1px solid #e5e7eb', borderRadius: 3, padding: '1px 5px' }}>{r.priority}优先</span>}
+                    {r.priority  && <span style={{ fontSize: 10, color: r.priority === '高' ? '#374151' : '#6b7280', border: '1px solid #e5e7eb', borderRadius: 3, padding: '1px 5px' }}>{r.priority}优先</span>}
                     {r.latency_ms > 0 && <span style={{ fontSize: 10, color: '#9ca3af' }}>{r.latency_ms}ms</span>}
                     <span style={{ fontSize: 11, color: '#9ca3af' }}>{isExpanded ? '▲' : '▼'}</span>
                   </div>
@@ -1156,8 +1156,8 @@ export default function SkillEvaluatorModule() {
                       )}
                       {!r.passed && r.failure_reason && (
                         <div style={{ marginBottom: 8 }}>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: '#b91c1c', marginBottom: 3 }}>失败原因</div>
-                          <div style={{ fontSize: 11, color: '#374151', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, padding: 8 }}>{r.failure_reason}</div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 3 }}>失败原因</div>
+                          <div style={{ fontSize: 11, color: '#374151', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 4, padding: 8 }}>{r.failure_reason}</div>
                         </div>
                       )}
                       {r.scores && Object.keys(r.scores).length > 0 && (
@@ -1207,8 +1207,8 @@ export default function SkillEvaluatorModule() {
             共 <strong style={{ color: '#111827' }}>{sorted.length}</strong> 条优化建议
           </span>
           <div style={{ display: 'flex', gap: 6 }}>
-            {highCnt > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', fontWeight: 700 }}>High ×{highCnt}</span>}
-            {midCnt  > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: '#fff7ed', color: '#92400e', border: '1px solid #fed7aa', fontWeight: 700 }}>Med ×{midCnt}</span>}
+            {highCnt > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: '#f9fafb', color: '#374151', border: '1px solid #e5e7eb', fontWeight: 700 }}>High ×{highCnt}</span>}
+            {midCnt  > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: '#f9fafb', color: '#374151', border: '1px solid #e5e7eb', fontWeight: 700 }}>Med ×{midCnt}</span>}
             {lowCnt  > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: '#f9fafb', color: '#6b7280', border: '1px solid #e5e7eb', fontWeight: 700 }}>Low ×{lowCnt}</span>}
           </div>
         </div>
@@ -1220,8 +1220,8 @@ export default function SkillEvaluatorModule() {
             const isOpen  = !!expandedRows[rowKey];
             const isHigh  = s.priority === 'high' || s.priority === '高';
             const isMid   = s.priority === 'medium' || s.priority === '中';
-            const badge   = isHigh ? { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca', label: 'High' }
-                          : isMid  ? { bg: '#fff7ed', color: '#92400e', border: '#fed7aa', label: 'Med'  }
+            const badge   = isHigh ? { bg: '#f9fafb', color: '#374151', border: '#e5e7eb', label: 'High' }
+                          : isMid  ? { bg: '#f9fafb', color: '#374151', border: '#e5e7eb', label: 'Med'  }
                           :          { bg: '#f9fafb', color: '#6b7280', border: '#e5e7eb', label: 'Low'  };
             const copyTxt = `【${s.dimension || '通用'}】问题：${s.issue || ''}\n建议：${s.suggestion || s.fix || ''}${s.expected_impact ? `\n预期提升：+${s.expected_impact}` : ''}`;
 
@@ -1246,8 +1246,8 @@ export default function SkillEvaluatorModule() {
                   {/* 维度标签 */}
                   {s.dimension && (
                     <span style={{
-                      fontSize: 10, padding: '1px 7px', background: '#f1f5f9',
-                      color: '#374151', border: '1px solid #e2e8f0', borderRadius: 4,
+                      fontSize: 10, padding: '1px 7px', background: '#f3f4f6',
+                      color: '#374151', border: '1px solid #e5e7eb', borderRadius: 4,
                       fontWeight: 600, flexShrink: 0,
                     }}>
                       {s.dimension}
@@ -1270,7 +1270,7 @@ export default function SkillEvaluatorModule() {
                   </span>
                   {/* 预期分数提升 */}
                   {s.expected_impact && (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#374151', flexShrink: 0 }}>
                       +{s.expected_impact}
                     </span>
                   )}
@@ -1466,12 +1466,12 @@ export default function SkillEvaluatorModule() {
                 onChange={handleJsonChange}
                 style={{
                   width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 8, resize: 'vertical',
-                  border: testCasesError ? '1px solid #ef4444' : '1px solid #e5e7eb',
+                  border: testCasesError ? '1px solid #374151' : '1px solid #e5e7eb',
                   borderRadius: 4, color: '#374151', background: '#f9fafb', boxSizing: 'border-box', outline: 'none',
                   maxHeight: 'calc(50vh - 100px)',
                 }}
               />
-              {testCasesError && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>{testCasesError}</div>}
+              {testCasesError && <div style={{ fontSize: 11, color: '#374151', marginTop: 3 }}>{testCasesError}</div>}
             </div>
 
             <div style={S.divider} />

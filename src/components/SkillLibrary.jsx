@@ -159,11 +159,11 @@ const DiffViewer = ({ changes }) => {
       {/* Legend */}
       <div style={{ display: 'flex', gap: '16px', padding: '8px 12px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '11px', color: '#6b7280' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '2px', background: '#fee2e2', border: '1px solid #fca5a5' }} />
+          <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '2px', background: '#f3f4f6', border: '1px solid #d1d5db' }} />
           删除
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '2px', background: '#dcfce7', border: '1px solid #86efac' }} />
+          <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '2px', background: '#f9fafb', border: '1px solid #e5e7eb' }} />
           新增
         </span>
       </div>
@@ -175,8 +175,8 @@ const DiffViewer = ({ changes }) => {
               display: 'flex',
               alignItems: 'flex-start',
               padding: '1px 0',
-              background: line.removed ? '#fee2e2' : line.added ? '#dcfce7' : (idx % 2 === 0 ? '#fff' : '#fafafa'),
-              borderLeft: line.removed ? '3px solid #ef4444' : line.added ? '3px solid #22c55e' : '3px solid transparent',
+              background: line.removed ? '#f3f4f6' : line.added ? '#f9fafb' : (idx % 2 === 0 ? '#fff' : '#fafafa'),
+              borderLeft: line.removed ? '3px solid #374151' : line.added ? '3px solid #6b7280' : '3px solid transparent',
             }}
           >
             {/* Marker */}
@@ -187,7 +187,7 @@ const DiffViewer = ({ changes }) => {
               fontSize: '11px',
               fontWeight: 700,
               paddingTop: '1px',
-              color: line.removed ? '#dc2626' : line.added ? '#16a34a' : 'transparent',
+              color: line.removed ? '#374151' : line.added ? '#374151' : 'transparent',
               userSelect: 'none',
             }}>
               {line.removed ? '−' : line.added ? '+' : ''}
@@ -200,7 +200,7 @@ const DiffViewer = ({ changes }) => {
             <span style={{
               flex: 1,
               padding: '1px 8px 1px 2px',
-              color: line.removed ? '#b91c1c' : line.added ? '#15803d' : '#374151',
+              color: line.removed ? '#374151' : line.added ? '#374151' : '#374151',
               textDecoration: line.removed ? 'line-through' : 'none',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-all',
@@ -450,7 +450,7 @@ const SkillLibrary = () => {
         onClick={() => openDetail(skill.id)}
         style={{
           borderRadius: '14px',
-          border: activeSkillId === skill.id ? '1.5px solid #2563eb' : '1px solid #e5e7eb',
+          border: activeSkillId === skill.id ? '1.5px solid #374151' : '1px solid #e5e7eb',
           boxShadow: activeSkillId === skill.id ? '0 0 0 3px rgba(37,99,235,0.08)' : '0 1px 4px rgba(0,0,0,0.05)',
           transition: 'all 200ms ease',
           height: '100%',
@@ -467,15 +467,15 @@ const SkillLibrary = () => {
             <span style={{
               display: 'inline-block', fontSize: '10px', fontWeight: 600,
               padding: '1px 7px', borderRadius: '4px', letterSpacing: '0.03em',
-              background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0',
+              background: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb',
             }}>
               {getFormatLabel(skill.format)}
             </span>
           </div>
           {activeSkillId === skill.id && (
-            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', padding: '2px 7px', borderRadius: '20px', border: '1px solid #bfdbfe' }}>
-              <CheckCircleOutlined style={{ fontSize: '12px', color: '#2563eb' }} />
-              <span style={{ fontSize: '10px', color: '#2563eb', fontWeight: 600 }}>使用中</span>
+            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', background: '#f3f4f6', padding: '2px 7px', borderRadius: '20px', border: '1px solid #d1d5db' }}>
+              <CheckCircleOutlined style={{ fontSize: '12px', color: '#374151' }} />
+              <span style={{ fontSize: '10px', color: '#374151', fontWeight: 600 }}>使用中</span>
             </div>
           )}
         </div>
@@ -489,8 +489,8 @@ const SkillLibrary = () => {
         </Paragraph>
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
-          <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '3px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', paddingTop: '10px', borderTop: '1px solid #f3f4f6' }}>
+          <span style={{ fontSize: '11px', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '3px' }}>
             <FileTextOutlined style={{ fontSize: '10px' }} />
             {skill.versions?.length || 1} 个版本
           </span>
@@ -498,10 +498,10 @@ const SkillLibrary = () => {
             {/* 最新评估等级徽章 */}
             {skill.latestEvalGrade && skill.latestEvalGrade !== '—' && (() => {
               const gradeStyle = skill.latestEvalGrade === '通过'
-                ? { bg: '#f0fdf4', color: '#166534', border: '#bbf7d0' }
+                ? { bg: '#f3f4f6', color: '#111827', border: '#d1d5db' }
                 : skill.latestEvalGrade === '警告'
-                ? { bg: '#fffbeb', color: '#92400e', border: '#fde68a' }
-                : { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' };
+                ? { bg: '#f9fafb', color: '#374151', border: '#e5e7eb' }
+                : { bg: '#f9fafb', color: '#374151', border: '#e5e7eb' };
               return (
                 <span style={{
                   fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '10px',
@@ -513,7 +513,7 @@ const SkillLibrary = () => {
                 </span>
               );
             })()}
-            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+            <span style={{ fontSize: '11px', color: '#9ca3af' }}>
               {skill.updatedAt ? new Date(skill.updatedAt).toLocaleDateString('zh-CN') : ''}
             </span>
           </div>
@@ -592,10 +592,10 @@ const SkillLibrary = () => {
         {/* Stats row */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
           {[
-            { label: '全部', value: skills.length, color: '#111827', bg: '#f1f5f9' },
-            { label: 'SKILL.md', value: skills.filter(s => s.format === 'skillmd' || s.format === 'skill_md').length, color: '#0369a1', bg: '#f0f9ff' },
-            { label: 'Function', value: skills.filter(s => s.format === 'function' || s.format === 'function_call').length, color: '#7c3aed', bg: '#faf5ff' },
-            { label: 'Prompt', value: skills.filter(s => s.format === 'prompt' || s.format === 'prompt_template').length, color: '#065f46', bg: '#f0fdf4' },
+            { label: '全部', value: skills.length, color: '#111827', bg: '#f3f4f6' },
+            { label: 'SKILL.md', value: skills.filter(s => s.format === 'skillmd' || s.format === 'skill_md').length, color: '#374151', bg: '#f0f9ff' },
+            { label: 'Function', value: skills.filter(s => s.format === 'function' || s.format === 'function_call').length, color: '#374151', bg: '#faf5ff' },
+            { label: 'Prompt', value: skills.filter(s => s.format === 'prompt' || s.format === 'prompt_template').length, color: '#374151', bg: '#f3f4f6' },
           ].map(({ label, value, color, bg }) => (
             <div key={label} style={{ padding: '10px 16px', borderRadius: '10px', background: bg, border: '1px solid transparent', minWidth: '80px' }}>
               <div style={{ fontSize: '18px', fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
@@ -702,13 +702,13 @@ const SkillLibrary = () => {
               </Button>
             </Upload>
             {uploadedFile && (
-              <div style={{ marginTop: '8px', fontSize: '12px', color: '#4b5563', background: '#f9fafb', padding: '8px 12px', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
+              <div style={{ marginTop: '8px', fontSize: '12px', color: '#374151', background: '#f9fafb', padding: '8px 12px', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 500 }}>📄 {uploadedFile.name}</span>
                   <Button type="text" size="small" onClick={() => setUploadedFile(null)} danger>移除</Button>
                 </div>
                 {uploadedFile.extractedFrom && (
-                  <div style={{ color: '#059669', marginTop: '2px' }}>✓ 提取自 ZIP: <code style={{ background: '#d1fae5', padding: '1px 4px', borderRadius: '3px' }}>{uploadedFile.extractedFrom}</code></div>
+                  <div style={{ color: '#111827', marginTop: '2px' }}>✓ 提取自 ZIP: <code style={{ background: '#f3f4f6', padding: '1px 4px', borderRadius: '3px' }}>{uploadedFile.extractedFrom}</code></div>
                 )}
                 <div style={{ color: '#6b7280', marginTop: '2px' }}>{(uploadedFile.content?.length || 0).toLocaleString()} 字符</div>
               </div>
@@ -830,10 +830,10 @@ const SkillLibrary = () => {
                                     selectedSkill.latestEvalGrade !== '—' &&
                                     index === selectedSkill.latestEvalVersionIndex && (() => {
                                       const gs = selectedSkill.latestEvalGrade === '通过'
-                                        ? { bg: '#f0fdf4', color: '#166534', border: '#bbf7d0' }
+                                        ? { bg: '#f3f4f6', color: '#111827', border: '#d1d5db' }
                                         : selectedSkill.latestEvalGrade === '警告'
-                                        ? { bg: '#fffbeb', color: '#92400e', border: '#fde68a' }
-                                        : { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' };
+                                        ? { bg: '#f9fafb', color: '#374151', border: '#e5e7eb' }
+                                        : { bg: '#f9fafb', color: '#374151', border: '#e5e7eb' };
                                       return (
                                         <span style={{
                                           fontSize: '10px', fontWeight: 700, padding: '1px 6px',
@@ -975,10 +975,10 @@ const SkillLibrary = () => {
               const removed = diffChanges.filter(c => c.removed).reduce((n, c) => n + c.value.split('\n').filter(Boolean).length, 0);
               return (
                 <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
-                  <div style={{ padding: '8px 14px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', fontSize: '12px', color: '#dc2626', fontWeight: 600 }}>
+                  <div style={{ padding: '8px 14px', borderRadius: '8px', background: '#f9fafb', border: '1px solid #e5e7eb', fontSize: '12px', color: '#374151', fontWeight: 600 }}>
                     − {removed} 行删除
                   </div>
-                  <div style={{ padding: '8px 14px', borderRadius: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: '12px', color: '#16a34a', fontWeight: 600 }}>
+                  <div style={{ padding: '8px 14px', borderRadius: '8px', background: '#f3f4f6', border: '1px solid #d1d5db', fontSize: '12px', color: '#374151', fontWeight: 600 }}>
                     + {added} 行新增
                   </div>
                 </div>
@@ -990,9 +990,9 @@ const SkillLibrary = () => {
                 <DiffViewer changes={diffChanges} />
               </div>
             ) : compareVersionA !== null && compareVersionB !== null ? (
-              <div style={{ padding: '32px', textAlign: 'center', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+              <div style={{ padding: '32px', textAlign: 'center', background: '#f3f4f6', borderRadius: '10px', border: '1px solid #d1d5db' }}>
                 <div style={{ fontSize: '24px', marginBottom: '8px' }}>✓</div>
-                <div style={{ color: '#15803d', fontWeight: 500 }}>两个版本内容完全相同</div>
+                <div style={{ color: '#374151', fontWeight: 500 }}>两个版本内容完全相同</div>
               </div>
             ) : (
               <Empty description="请选择两个版本进行对比" />

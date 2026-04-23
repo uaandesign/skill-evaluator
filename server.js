@@ -1661,21 +1661,37 @@ ${ruleSkillContent ? '依据上传的规则 Skill 中的自定义规范进行检
 }
 
 /**
- * Merge generic and specialized optimization suggestions
+ * 将英文优先级标识统一转换为中文
  */
-function mergeOptimizationSuggestions(generic = [], specialized = []) {
-  const merged = [...generic];
+function normalizePriority(p) {
+  if (!p) return '低';
+  const lp = String(p).toLowerCase();
+  if (lp === 'high'   || p === '高') return '高';
+  if (lp === 'medium' || lp === 'mid' || p === '中') return '中';
+  return '低';
+}
 
-  // 添加专项建议并标记来源
-  specialized.forEach((s) => {
-    merged.push({
-      ...s,
-      source: 'specialized',
-    });
-  });
+/**
+ * Merge generic, specialized, and volcano optimization suggestions.
+ * All text is normalised to Chinese priority labels.
+ * @param {Array} generic    - 通用评估产出的优化建议
+ * @param {Array} specialized - 专项评估产出的优化建议（一期暂留，通常为空）
+ * @param {Array} volcano    - 火山合规脚本产出的优化建议
+ */
+function mergeOptimizationSuggestions(generic = [], specialized = [], volcano = []) {
+  const merged = [];
 
-  // 按优先级排序
-  const priorityOrder = { '高': 0, 'high': 0, '中': 1, 'medium': 1, '低': 2, 'low': 2 };
+  // 通用建议
+  generic.forEach((s) => merged.push({ ...s, priority: normalizePriority(s.priority), source: 'generic' }));
+
+  // 专项建议
+  specialized.forEach((s) => merged.push({ ...s, priority: normalizePriority(s.priority), source: 'specialized' }));
+
+  // 火山合规建议
+  volcano.forEach((s) => merged.push({ ...s, priority: normalizePriority(s.priority), source: 'volcano' }));
+
+  // 按优先级排序（高 > 中 > 低）
+  const priorityOrder = { '高': 0, '中': 1, '低': 2 };
   return merged.sort((a, b) => (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9));
 }
 
@@ -1757,20 +1773,50 @@ function parseScriptName(text) {
  * 将 Python 脚本的 category_scores 输出映射到前端 dimensional_scores 格式。
  * @param {object} categoryScores - {id: {earned, available}} — 来自脚本输出
  * @param {object} dimensionMap   - {id: {name, max}} — 从 SKILL.md 维度表格解析
+ * @param {Array}  allChecks      - 脚本输出的全量检查项，用于生成分数解释
  * @returns {object} - {'中文维度名': {score, max, comment}}
  */
-function mapCategoryScores(categoryScores, dimensionMap) {
+function mapCategoryScores(categoryScores, dimensionMap, allChecks = []) {
   const result = {};
   for (const [id, data] of Object.entries(categoryScores || {})) {
     const earned    = data.earned    ?? 0;
     const available = data.available ?? 0;
     const info      = dimensionMap[id];
     const name      = info?.name || id; // 未找到中文名则回退到英文 ID
-    result[name] = {
-      score:   earned,
-      max:     available,
-      comment: `${earned}/${available} 分`,
-    };
+
+    // ── 构建分数说明：列举该维度下各检查项的通过/失败情况 ──
+    const catChecks   = allChecks.filter((c) => c.category === id);
+    const failedChecks = catChecks.filter((c) => !c.passed);
+    const passedChecks = catChecks.filter((c) =>  c.passed);
+
+    let comment;
+    if (catChecks.length > 0) {
+      const ratio = available > 0 ? Math.round(earned / available * 100) : 0;
+      const parts = [`得分 ${earned}/${available}（${ratio}%），共 ${catChecks.length} 项检查`];
+      if (passedChecks.length > 0) {
+        parts.push(`✅ 通过 ${passedChecks.length} 项`);
+      }
+      if (failedChecks.length > 0) {
+        const failDetails = failedChecks
+          .map((c) => `[${c.id}] ${c.title}${c.evidence ? '：' + c.evidence : ''}`)
+          .join('；');
+        parts.push(`❌ 未通过 ${failedChecks.length} 项：${failDetails}`);
+      }
+      comment = parts.join('，');
+    } else {
+      // 无检查项明细时，给出简要的比例说明
+      if (available > 0) {
+        const ratio = Math.round(earned / available * 100);
+        if (ratio >= 90)      comment = `得分 ${earned}/${available}，表现优秀，几乎满足该维度全部要求。`;
+        else if (ratio >= 70) comment = `得分 ${earned}/${available}，基本达标，仍有小幅提升空间。`;
+        else if (ratio >= 50) comment = `得分 ${earned}/${available}，部分要求未满足，建议针对性优化。`;
+        else                  comment = `得分 ${earned}/${available}，该维度得分较低，需要重点改进。`;
+      } else {
+        comment = `得分 ${earned} 分。`;
+      }
+    }
+
+    result[name] = { score: earned, max: available, comment };
   }
   return result;
 }
@@ -2171,7 +2217,10 @@ ${resultsForJudge}
 3. passed字段必须严格按照上述通过/失败判定标准判断
 4. optimization_suggestions的priority必须按照上述阈值确定`;
 
-    // ── Phase 2: 优先运行通用评估 Python 脚本，失败时回退 LLM Judge ─────────
+    // ── Phase 2: 优先运行通用评估 Python 脚本，失败时构建基础结果（一期不调用 LLM Judge）──
+    // SKIP_JUDGE = true：一期评估标准均为静态规则，无需 LLM Judge，节省 token 并加快速度
+    const SKIP_JUDGE = true;
+
     let evaluationResult;
     let judgeSkipped = false;
     let scriptUsed   = false; // 标记是否成功使用了脚本评估
@@ -2183,7 +2232,8 @@ ${resultsForJudge}
       if (scriptResult) {
         // 脚本成功：将 category_scores 转换为 dimensional_scores，注入测试用例执行结果
         const passedCount2 = executionResults.filter((r) => !r.execution_error).length;
-        const dimScoresFromScript = mapCategoryScores(scriptResult.category_scores || {}, genericDimensionMap);
+        const allChecks = scriptResult.checks || [];
+        const dimScoresFromScript = mapCategoryScores(scriptResult.category_scores || {}, genericDimensionMap, allChecks);
         evaluationResult = {
           summary: {
             overall_score: scriptResult.score ?? 0,
@@ -2227,9 +2277,9 @@ ${resultsForJudge}
             .map((c) => ({
               dimension:       genericDimensionMap[c.category]?.name || c.category,
               priority:        c.severity === 'hard' ? '高' : '低',
-              issue:           c.title,
-              suggestion:      `修复检查项 ${c.id}: ${c.evidence}`,
-              expected_impact: `可提升 ${c.available} 分`,
+              issue:           c.title || `检查项 ${c.id} 未通过`,
+              suggestion:      `请修复检查项 [${c.id}]${c.evidence ? '：当前问题为"' + c.evidence + '"，请针对该问题进行修正' : '，参照评估标准进行改进'}。`,
+              expected_impact: c.available ? `可提升 ${c.available} 分` : '提升通用评分',
             })),
           script_checks:    scriptResult.checks  || [],
           script_score:     scriptResult.score,
@@ -2245,154 +2295,71 @@ ${resultsForJudge}
       }
     }
 
-    // ② 如果脚本未运行或失败，使用 LLM Judge（原有逻辑）
-    let judgeResponseText;
-    let judgeCallError = null;
-
+    // ② 脚本未运行或失败时：一期直接跳过 Judge，基于执行结果构建基础评估报告
     if (!scriptUsed) {
-    // 如果上传了通用评估标准，将其作为 system prompt；否则使用内置 judgePrompt（user prompt）
-    const judgeUserPrompt = genericSkillText
-      ? `请严格遵照系统提示（你的评估标准）中定义的评估维度和评分规则，对以下技能进行综合评分。
+      console.log('[evaluate-skill] Phase 2：脚本未运行/失败，SKIP_JUDGE=true，直接构建基础评估结果（不调用 LLM Judge）');
 
-⚠️ 关键约束（必须严格遵守）：
-1. dimensional_scores 中的维度名称和数量必须与系统提示中定义的完全一致，一个不多，一个不少
-2. 不得自行添加、删减或重命名任何维度
-3. 评分标准、分值区间以系统提示为准
+      const passedCount0 = executionResults.filter((r) => !r.execution_error).length;
+      const totalCount0  = executionResults.length;
+      const passRate0    = totalCount0 > 0 ? passedCount0 / totalCount0 : 0;
 
-## 技能定义
-\`\`\`
-${skill_content}
-\`\`\`
-
-## 测试执行结果（共 ${executionResults.length} 条）
-${resultsForJudge}
-
-请严格返回 JSON（不要输出任何其他内容）。
-- dimensional_scores 的每个 key 必须是系统提示中定义的维度名，有多少维度就写多少个 key
-- 每个维度必须包含 score（实际得分）和 max（该维度在系统提示评分规则中的满分），从系统提示评分规则里直接读取满分值，不得估算或捏造
-{"summary":{"total_tests":${executionResults.length},"passed_tests":0,"failed_tests":0,"pass_rate":0.0},"dimensional_scores":{"<维度1名>":{"score":12,"max":15,"comment":"评分理由"},"<维度2名>":{"score":16,"max":20,"comment":"评分理由"},"<...每个维度>":{"score":0,"max":0,"comment":""}},"detailed_results":[{"id":"1","name":"","passed":true,"actual_output":"","failure_reason":"","latency_ms":0,"scores":{}}],"weakness_analysis":{"lowest_dimension":"","common_failures":[],"systematic_issues":[]},"optimization_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","suggestion":"","expected_impact":""}]}`
-      : judgePrompt;
-    const judgeSystemPrompt = genericSkillText || null;
-
-    try {
-      console.log(`[evaluate-skill] Phase 2 开始调用 Judge 模型 (${model_config?.provider}/${model_config?.model})，使用${genericSkillText ? '自定义评估标准' : '内置规则'}...`);
-      const judgeStartTime = Date.now();
-      judgeResponseText = await callLLMForEval(model_config || null, judgeUserPrompt, 5000, judgeSystemPrompt);
-      const judgeDuration = Date.now() - judgeStartTime;
-      console.log(`[evaluate-skill] Judge 调用成功，耗时 ${judgeDuration}ms，响应长度: ${judgeResponseText.length} 字符`);
-    } catch (llmError) {
-      judgeCallError = llmError.message;
-      console.error(`[evaluate-skill] Judge 模型调用失败 (${model_config?.provider}/${model_config?.model}):`, llmError.message);
-
-      // Attempt fallback to Claude if Judge model fails
-      if (model_config?.provider !== 'anthropic') {
-        console.log('[evaluate-skill] 尝试使用 Claude 作为 Judge 备用模型...');
-        try {
-          const claudeApiKey = process.env.ANTHROPIC_API_KEY;
-          if (claudeApiKey) {
-            judgeResponseText = await callLLMForEval(
-              { provider: 'anthropic', apiKey: claudeApiKey, model: 'claude-sonnet-4-6' },
-              judgeUserPrompt,
-              5000,
-              judgeSystemPrompt
-            );
-            console.log('[evaluate-skill] Claude 备用 Judge 调用成功');
-            judgeCallError = null; // Clear error since fallback succeeded
-          } else {
-            console.warn('[evaluate-skill] 无 Anthropic API key，无法使用 Claude 备用 Judge');
-          }
-        } catch (fallbackErr) {
-          console.error('[evaluate-skill] Claude 备用 Judge 也失败:', fallbackErr.message);
-          // Keep original error, don't throw yet
-        }
+      // 如果上传了通用评估标准，从其维度定义构建 dimensional_scores（满分来自 SKILL.md）
+      let baseScores = {};
+      if (genericDimensions && genericDimensions.length > 0) {
+        genericDimensions.forEach((dim) => {
+          // 按通过率比例估算各维度得分
+          const estimatedScore = Math.round(dim.max * passRate0);
+          baseScores[dim.name] = {
+            score:   estimatedScore,
+            max:     dim.max,
+            comment: `基于测试通过率（${Math.round(passRate0 * 100)}%）估算得分，请上传评估脚本以获取精确评分。`,
+          };
+        });
+      } else {
+        // 无自定义标准：使用通用四维度（1-5 分制估算）
+        const s = passRate0 >= 0.8 ? 4 : passRate0 >= 0.6 ? 3 : 2;
+        baseScores = {
+          '有用性': { score: s, max: 5, comment: `基于测试通过率（${Math.round(passRate0 * 100)}%）估算。` },
+          '稳定性': { score: s, max: 5, comment: `基于测试通过率（${Math.round(passRate0 * 100)}%）估算。` },
+          '准确性': { score: s, max: 5, comment: `基于测试通过率（${Math.round(passRate0 * 100)}%）估算。` },
+          '安全性': { score: 4, max: 5, comment: '无脚本评估，默认较高分；请上传评估脚本以精确检查。' },
+        };
       }
-    }
 
-    // ── Parse judge response with improved error handling ──────────────────
-    let evaluationResult;
-    let judgeSkipped = false; // 标记是否跳过了Judge评估
-
-    if (judgeCallError && !judgeResponseText) {
-      // Judge completely failed — try to skip judge and use execution results directly
-      console.warn('[evaluate-skill] Judge 评估失败，尝试跳过 Judge 使用执行结果...');
-
-      // Build a simplified evaluation result from execution results
-      const passedCount = executionResults.filter(r => !r.execution_error).length;
-      const totalCount = executionResults.length;
-      const passRate = totalCount > 0 ? passedCount / totalCount : 0;
-
-      // Create basic evaluation result without Judge scoring
       evaluationResult = {
         summary: {
-          overall_score: passRate >= 0.8 ? 70 : passRate >= 0.6 ? 50 : 30,
-          quality_score: passRate >= 0.8 ? 70 : passRate >= 0.6 ? 50 : 30,
-          functionality_score: passRate >= 0.8 ? 70 : passRate >= 0.6 ? 50 : 30,
-          safety_score: passRate >= 0.8 ? 70 : passRate >= 0.6 ? 50 : 30,
-          total_tests: totalCount,
-          passed_tests: passedCount,
-          failed_tests: totalCount - passedCount,
-          pass_rate: passRate,
+          overall_score: Math.round(passRate0 * 100),
+          total_tests:   totalCount0,
+          passed_tests:  passedCount0,
+          failed_tests:  totalCount0 - passedCount0,
+          pass_rate:     passRate0,
         },
-        dimensional_scores: {
-          "有用性": { score: passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2, comment: "基于通过率估算" },
-          "稳定性": { score: passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2, comment: "基于通过率估算" },
-          "准确性": { score: passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2, comment: "基于通过率估算" },
-          "安全性": { score: 4, comment: "无法评估，Judge模型不可用" }
-        },
+        dimensional_scores: baseScores,
         detailed_results: executionResults.map((r, i) => ({
-          id: r.id || `${i + 1}`,
-          name: r.name || `测试用例 ${i + 1}`,
-          test_type: r.test_type || '正常场景',
-          priority: r.priority || '中',
-          passed: !r.execution_error,
-          actual_output: r.actual_output || '',
+          id:              r.id    || `${i + 1}`,
+          name:            r.name  || `测试用例 ${i + 1}`,
+          test_type:       r.test_type || '正常场景',
+          priority:        r.priority  || '中',
+          passed:          !r.execution_error,
+          actual_output:   r.actual_output   || '',
           expected_output: r.expected_output || '',
-          input: r.input || '',
-          failure_reason: r.execution_error || '',
-          latency_ms: r.latency_ms || 0,
-          scores: {
-            "有用性": passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2,
-            "稳定性": passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2,
-            "准确性": passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2,
-            "安全性": 4
-          }
+          input:           r.input           || '',
+          failure_reason:  r.execution_error || '',
+          latency_ms:      r.latency_ms      || 0,
+          scores:          {},
         })),
         weakness_analysis: {
-          lowest_dimension: "安全性 (Judge模型不可用，无法准确评估)",
-          common_failures: executionResults.filter(r => r.execution_error).map(r => r.execution_error).slice(0, 3),
-          systematic_issues: ["Judge 模型连接失败，评分为基于通过率的估计值"]
+          lowest_dimension: '',
+          common_failures:  executionResults.filter((r) => r.execution_error).map((r) => r.execution_error).slice(0, 3),
+          systematic_issues: [],
         },
         optimization_suggestions: [],
-        judge_skipped: true,
-        judge_skip_reason: judgeCallError,
+        judge_skipped:     true,
+        judge_skip_reason: '一期跳过 LLM Judge（SKIP_JUDGE=true），请上传含评估脚本的 ZIP 包以获取精确分析。',
+        evaluation_source: 'execution_only',
       };
-
       judgeSkipped = true;
-      console.log('[evaluate-skill] Judge 已跳过，使用执行结果生成基础评估报告');
-    }
-
-    if (!judgeSkipped) {
-      try {
-        const jsonMatch = judgeResponseText.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          console.error('[evaluate-skill] Judge 响应中未找到JSON:', judgeResponseText.substring(0, 300));
-          throw new Error(`响应中未找到JSON。响应内容: ${judgeResponseText.substring(0, 200)}`);
-        }
-
-        const jsonString = jsonMatch[0];
-        console.log(`[evaluate-skill] 解析 Judge JSON，长度: ${jsonString.length} 字符`);
-        evaluationResult = JSON.parse(jsonString);
-        console.log(`[evaluate-skill] Judge JSON 解析成功，包含字段: ${Object.keys(evaluationResult).join(', ')}`);
-      } catch (parseError) {
-        console.error('[evaluate-skill] Judge 响应解析失败，响应前500字符:', judgeResponseText?.substring(0, 500));
-        return res.status(500).json({
-          error: '评估结果解析失败',
-          details: parseError.message,
-          raw: judgeResponseText?.substring(0, 500),
-          suggestion: 'Judge 模型返回的响应格式不正确，请稍后重试或切换模型'
-        });
-      }
-    }
+      console.log('[evaluate-skill] Phase 2 基础评估完成（无脚本/无Judge），pass_rate:', passRate0);
     } // end if (!scriptUsed)
 
     // ── Merge Phase-1 execution data into Phase-2 results ─────────────────
@@ -2493,16 +2460,61 @@ ${resultsForJudge}
       if (hasVolcanoScript) {
         const volcScriptResult = await runEvalScript(volcanoBase64, skill_content, skill_name, volcanoScriptName);
         if (volcScriptResult) {
-          volcanoDimensionalScores = mapCategoryScores(volcScriptResult.category_scores || {}, volcanoDimensionMap);
+          // 合并所有火山检查项（hard_failures + warnings + checks）
+          const volcAllChecks = []
+            .concat(volcScriptResult.checks         || [])
+            .concat(volcScriptResult.hard_failures  || [])
+            .concat(volcScriptResult.warnings       || [])
+            // 去重（按 id）
+            .filter((c, i, arr) => arr.findIndex((x) => x.id === c.id) === i);
+          volcanoDimensionalScores = mapCategoryScores(
+            volcScriptResult.category_scores || {},
+            volcanoDimensionMap,
+            volcAllChecks,
+          );
           volcanoComplianceSummary = volcScriptResult.volcano_assessment?.reason || '';
-          volcanoFixSuggestions = (volcScriptResult.hard_failures || [])
-            .concat(volcScriptResult.warnings || [])
-            .map((c) => ({
-              dimension: volcanoDimensionMap[c.category]?.name || c.category,
-              priority:  c.severity === 'hard' ? '高' : '低',
-              issue:     c.title,
-              fix:       `修复检查项 ${c.id}: ${c.evidence}`,
-            }));
+
+          // 构建火山合规优化建议（全中文，含命名规范问题）
+          volcanoFixSuggestions = volcAllChecks
+            .filter((c) => !c.passed)
+            .map((c) => {
+              const dimName  = volcanoDimensionMap[c.category]?.name || c.category || '火山合规';
+              const priority = c.severity === 'hard' ? '高' : '低';
+
+              // 生成中文问题描述
+              let issueCn  = c.title || `检查项 ${c.id} 未通过`;
+              // 如果标题是英文，补充说明
+              if (/^[A-Za-z\s_\-:]+$/.test(issueCn)) {
+                issueCn = `[${c.id}] ${issueCn}`;
+              }
+
+              // 生成中文修复建议（根据检查类别提供针对性指导）
+              const evidence = c.evidence ? `当前值为："${c.evidence}"` : '';
+              let fixCn;
+              const catLower = (c.category || '').toLowerCase();
+              if (catLower.includes('naming') || catLower.includes('name') || c.id?.toLowerCase().includes('name')) {
+                fixCn = `【命名规范】请修正 Skill 命名，确保使用小写字母、数字和连字符，避免空格及特殊字符。${evidence}`;
+              } else if (catLower.includes('metadata') || catLower.includes('meta')) {
+                fixCn = `【元数据】请补全或修正 SKILL.md 中的元数据字段（如 name、description、version 等）。${evidence}`;
+              } else if (catLower.includes('trigger') || catLower.includes('desc')) {
+                fixCn = `【触发描述】请优化 Skill 的触发词或描述，确保语义清晰、符合规范。${evidence}`;
+              } else if (catLower.includes('format') || catLower.includes('struct')) {
+                fixCn = `【格式结构】请检查 SKILL.md 的文档格式，确保章节结构、Markdown 语法符合规范。${evidence}`;
+              } else if (catLower.includes('security') || catLower.includes('safe')) {
+                fixCn = `【安全合规】请检查并移除潜在的安全风险内容，确保 Skill 符合平台安全要求。${evidence}`;
+              } else {
+                fixCn = `请修复检查项 [${c.id}] 所指出的问题。${evidence ? evidence + '，' : ''}建议参照火山平台 Skill 规范进行修正。`;
+              }
+
+              return {
+                dimension:       dimName,
+                priority,
+                issue:           issueCn,
+                suggestion:      fixCn,
+                expected_impact: c.available ? `可提升 ${c.available} 分` : '提升合规得分',
+                source:          'volcano',
+              };
+            });
           volcanoScore = volcScriptResult.score ?? 0;
           volcScriptUsed = true;
           console.log(`[evaluate-skill] Phase 4 脚本评估成功，score: ${volcanoScore}`);
@@ -2647,7 +2659,8 @@ ${skill_content}
       weakness_analysis:        evaluationResult.weakness_analysis       || {},
       optimization_suggestions: mergeOptimizationSuggestions(
         evaluationResult.optimization_suggestions || [],
-        specializedSuggestions
+        specializedSuggestions,
+        volcanoFixSuggestions,
       ),
       // Specialized evaluation results
       specialized_dimensional_scores: specializedDimensionalScores || null,

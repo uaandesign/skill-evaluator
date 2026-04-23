@@ -494,9 +494,29 @@ const SkillLibrary = () => {
             <FileTextOutlined style={{ fontSize: '10px' }} />
             {skill.versions?.length || 1} 个版本
           </span>
-          <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-            {skill.updatedAt ? new Date(skill.updatedAt).toLocaleDateString('zh-CN') : ''}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/* 最新评估等级徽章 */}
+            {skill.latestEvalGrade && skill.latestEvalGrade !== '—' && (() => {
+              const gradeStyle = skill.latestEvalGrade === '通过'
+                ? { bg: '#f0fdf4', color: '#166534', border: '#bbf7d0' }
+                : skill.latestEvalGrade === '警告'
+                ? { bg: '#fffbeb', color: '#92400e', border: '#fde68a' }
+                : { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' };
+              return (
+                <span style={{
+                  fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '10px',
+                  background: gradeStyle.bg, color: gradeStyle.color,
+                  border: `1px solid ${gradeStyle.border}`,
+                }}>
+                  {skill.latestEvalGrade}
+                  {skill.latestEvalScore != null && ` ${skill.latestEvalScore}`}
+                </span>
+              );
+            })()}
+            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+              {skill.updatedAt ? new Date(skill.updatedAt).toLocaleDateString('zh-CN') : ''}
+            </span>
+          </div>
         </div>
       </Card>
     </Col>
@@ -805,6 +825,26 @@ const SkillLibrary = () => {
                                   <Text style={{ fontSize: '12px', color: '#6b7280' }}>
                                     {new Date(version.timestamp).toLocaleString('zh-CN')}
                                   </Text>
+                                  {/* 评估等级徽章：仅显示在最新被评估的版本上 */}
+                                  {selectedSkill.latestEvalGrade &&
+                                    selectedSkill.latestEvalGrade !== '—' &&
+                                    index === selectedSkill.latestEvalVersionIndex && (() => {
+                                      const gs = selectedSkill.latestEvalGrade === '通过'
+                                        ? { bg: '#f0fdf4', color: '#166534', border: '#bbf7d0' }
+                                        : selectedSkill.latestEvalGrade === '警告'
+                                        ? { bg: '#fffbeb', color: '#92400e', border: '#fde68a' }
+                                        : { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' };
+                                      return (
+                                        <span style={{
+                                          fontSize: '10px', fontWeight: 700, padding: '1px 6px',
+                                          borderRadius: '10px', background: gs.bg, color: gs.color,
+                                          border: `1px solid ${gs.border}`,
+                                        }}>
+                                          {selectedSkill.latestEvalGrade}
+                                          {selectedSkill.latestEvalScore != null && ` ${selectedSkill.latestEvalScore}`}
+                                        </span>
+                                      );
+                                  })()}
                                 </Space>
                                 <Space size="small">
                                   {index !== selectedSkill.currentVersionIndex && (

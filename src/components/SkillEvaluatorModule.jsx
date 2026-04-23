@@ -18,15 +18,19 @@ function computeEvalGrade(score, dimensionalScores) {
   if (score == null) return '—';
   if (score < 80) return '未通过';
 
-  // 统计各维度是否均达到 70%（百分制）
+  // 统计各维度是否均达到其满分的 70%
   const dimEntries = dimensionalScores ? Object.entries(dimensionalScores) : [];
   if (dimEntries.length > 0) {
+    const hasMax = dimEntries.some(([, e]) => typeof e === 'object' && e?.max != null && e.max > 0);
     const rawScores = dimEntries.map(([, e]) => (typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0)));
-    const maxRaw = Math.max(...rawScores);
-    const isHundredScale = maxRaw > 5; // >5 视为百分制，否则 1-5 制
-    const allDimsPass = rawScores.every((r) => {
-      const s100 = isHundredScale ? r : r * 20;
-      return s100 >= 70;
+    const maxRaw = Math.max(...rawScores, 0);
+    const isHundredScale = hasMax || maxRaw > 5;
+    const allDimsPass = dimEntries.every(([, e]) => {
+      const s = typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0);
+      const m = typeof e === 'object' ? (e?.max   ?? null) : null;
+      // 有满分字段则用实际得分/满分，否则按分制推断百分比
+      const pct = m != null && m > 0 ? (s / m * 100) : isHundredScale ? s : s * 20;
+      return pct >= 70;
     });
     if (score >= 90 && allDimsPass) return '通过';
     return '警告';
@@ -44,10 +48,64 @@ const S = {
   codeBox:    { background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 4, padding: 10, fontSize: 12, fontFamily: 'monospace', color: '#374151', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowY: 'auto' },
 };
 
+// ── 辅助：等级字母 ─────────────────────────────────────────────────────────────
+const scoreToLetter = (score) => {
+  if (score == null) return '—';
+  if (score >= 95) return 'S';
+  if (score >= 90) return 'A';
+  if (score >= 80) return 'B+';
+  if (score >= 70) return 'B';
+  if (score >= 60) return 'C';
+  return 'D';
+};
+
+// ── 辅助：维度名称英文映射 ────────────────────────────────────────────────────
+const DIM_ENGLISH = {
+  '有用性': 'USEFULNESS', '稳定性': 'STABILITY', '准确性': 'ACCURACY',
+  '安全性': 'SAFETY', '元数据与触发能力': 'METADATA', '上下文理解': 'CONTEXT',
+  '响应质量': 'QUALITY', '指令遵从': 'INSTRUCTION', '格式规范': 'FORMAT',
+  '命名结构': 'NAMING', 'naming_required_rules': 'NAMING',
+  'skill_frontmatter': 'FRONTMATTER', 'directory_structure': 'STRUCTURE',
+};
+
+// ── 辅助：SVG 雷达图 ──────────────────────────────────────────────────────────
+const RadarChart = ({ dimensions, size = 140 }) => {
+  const n = dimensions.length;
+  if (n < 3) return null;
+  const cx = size / 2, cy = size / 2, r = size * 0.38;
+  const angleFor = (i) => -Math.PI / 2 + (i / n) * 2 * Math.PI;
+  const ptStr = (pts) => pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const axisPoints = Array.from({ length: n }, (_, i) => {
+    const a = angleFor(i); return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  });
+  const dataPoints = dimensions.map((d, i) => {
+    const pct = Math.min((d.pct ?? 0) / 100, 1);
+    const a = angleFor(i); return [cx + r * pct * Math.cos(a), cy + r * pct * Math.sin(a)];
+  });
+  const rings = [0.25, 0.5, 0.75, 1.0];
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: 'block', flexShrink: 0 }}>
+      {rings.map((frac) => {
+        const pts = Array.from({ length: n }, (_, i) => {
+          const a = angleFor(i); return [cx + r * frac * Math.cos(a), cy + r * frac * Math.sin(a)];
+        });
+        return <polygon key={frac} points={ptStr(pts)} fill="none" stroke="#e5e7eb" strokeWidth={0.8} />;
+      })}
+      {axisPoints.map(([x, y], i) => (
+        <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#e5e7eb" strokeWidth={0.8} />
+      ))}
+      <polygon points={ptStr(dataPoints)} fill="rgba(17,24,39,0.10)" stroke="#111827" strokeWidth={1.5} />
+      {dataPoints.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r={2.5} fill="#111827" />
+      ))}
+    </svg>
+  );
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function SkillEvaluatorModule() {
   const {
-    modelConfigs, skills, saveSkillVersion,
+    modelConfigs, skills, saveSkillVersion, updateSkill,
     skillEvalState, setSkillEvalState,
     evalStandards, setEvalStandard, clearEvalStandard,
     evalModelId, setActiveTab,
@@ -196,6 +254,17 @@ export default function SkillEvaluatorModule() {
       } else {
         set({ results: data, resultsTab: 'evaluation' });
         message.success('评估完成');
+
+        // 把最新评估等级写回技能对象，供技能库卡片展示
+        const evalGrade = computeEvalGrade(data.summary?.overall_score, data.dimensional_scores);
+        if (selectedSkillId && updateSkill) {
+          updateSkill(selectedSkillId, {
+            latestEvalGrade: evalGrade,
+            latestEvalScore: data.summary?.overall_score ?? null,
+            latestEvalAt: Date.now(),
+            latestEvalVersionIndex: selectedVersionIndex,
+          });
+        }
 
         // Save evaluation record to history
         const scores = {};
@@ -420,10 +489,10 @@ export default function SkillEvaluatorModule() {
           </Button>
         </div>
 
+        {/* 专项评估规则暂时隐藏，一期不做 */}
         {[
-          { type: 'generic',     label: '通用评估规则',  std: genericStd     },
-          { type: 'specialized', label: '专项评估规则',  std: specializedStd },
-          { type: 'volcano',     label: '火山合规规则',  std: volcanoStd     },
+          { type: 'generic',  label: '通用评估规则', std: genericStd  },
+          { type: 'volcano',  label: '火山合规规则', std: volcanoStd  },
         ].map(({ type, label, std }) => (
           <div
             key={type}
@@ -522,12 +591,30 @@ export default function SkillEvaluatorModule() {
   const renderEvaluationTab = () => {
     const { summary, dimensional_scores, weakness_analysis } = results;
 
-    // Azure AI Foundry style color mapping
-    const getScoreColor = (score) => {
-      if (score >= 80) return '#10b981';  // green
-      if (score >= 60) return '#f59e0b';  // amber
-      return '#ef4444';  // red
+    // ── 综合等级计算 ─────────────────────────────────────────────────────────
+    const grade = summary?.overall_score != null
+      ? computeEvalGrade(summary.overall_score, dimensional_scores) : '—';
+    const gradeColor = grade === '通过' ? '#10b981' : grade === '警告' ? '#f59e0b'
+      : grade === '未通过' ? '#ef4444' : '#9ca3af';
+    const letter = scoreToLetter(summary?.overall_score);
+
+    // ── 构建雷达图用的维度数组 ───────────────────────────────────────────────
+    const buildDimList = (scores) => {
+      if (!scores) return [];
+      const entries = Object.entries(scores);
+      const hasMax = entries.some(([, e]) => typeof e === 'object' && e?.max != null && e.max > 0);
+      const rawMax = Math.max(...entries.map(([, e]) => typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0)), 0);
+      const isHundred = hasMax || rawMax > 5;
+      return entries.map(([name, entry]) => {
+        const score = typeof entry === 'object' ? (entry?.score ?? 0) : (entry ?? 0);
+        const max   = typeof entry === 'object' ? (entry?.max   ?? null) : null;
+        const pct   = max != null && max > 0 ? Math.round(score / max * 100)
+          : isHundred ? score : score * 20;
+        return { name, score, max, pct };
+      });
     };
+    const dimList     = buildDimList(dimensional_scores);
+    const volcDimList = buildDimList(results.volcano_dimensional_scores);
 
     return (
       <div>
@@ -542,155 +629,221 @@ export default function SkillEvaluatorModule() {
           />
         )}
 
-        {/* Top info bar - Azure Foundry style */}
+        {/* 顶部操作栏 */}
         <div style={{
-          background: 'linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)',
-          border: '1px solid #e5e7eb',
-          borderRadius: '8px 8px 0 0',
-          padding: '16px 20px',
-          marginBottom: 0,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '10px 0', marginBottom: 16,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {results.evaluation_mode === 'real' && (
               <>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: results.judge_skipped ? '#f59e0b' : '#10b981' }} />
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: results.judge_skipped ? '#f59e0b' : '#10b981' }} />
                 <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>
                   {results.judge_skipped ? '部分执行评估' : '真实执行评估'} · {selectedModel?.displayName || '配置模型'}
                 </span>
               </>
             )}
           </div>
-          <Button
-            size="small"
-            style={{ fontSize: 11, borderColor: '#d1d5db', color: '#374151' }}
-            loading={exporting}
-            onClick={handleExportReport}
-          >
+          <Button size="small" style={{ fontSize: 11, borderColor: '#d1d5db', color: '#374151' }}
+            loading={exporting} onClick={handleExportReport}>
             {exporting ? '导出中...' : '📥 导出报告'}
           </Button>
         </div>
 
-        {/* Summary cards - 综合评估 */}
-        {(() => {
-          const grade = summary?.overall_score != null ? computeEvalGrade(summary.overall_score, dimensional_scores) : '—';
-          const gradeColor = grade === '通过' ? '#10b981' : grade === '警告' ? '#f59e0b' : grade === '未通过' ? '#ef4444' : '#9ca3af';
-          const gradeDesc = grade === '通过' ? '总分≥90且各维度≥70' : grade === '警告' ? '总分80-89或某维度<70' : grade === '未通过' ? '总分<80' : '';
-          return (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, padding: '20px 0' }}>
-              {[
-                { label: '综合评分', value: summary?.overall_score ?? '—', sub: '/ 100', color: getScoreColor(summary?.overall_score) },
-                { label: '综合评估', value: grade, sub: gradeDesc, color: gradeColor },
-                { label: '测试通过', value: `${summary?.passed_tests ?? '—'}`, sub: `/ ${summary?.total_tests ?? '—'}` },
-                { label: '通过率',   value: summary?.pass_rate != null ? `${Math.round(summary.pass_rate * 100)}%` : '—', sub: '' },
-              ].map((c) => (
-                <div key={c.label} style={{
-                  ...S.card,
-                  borderLeft: `4px solid ${c.color || '#d1d5db'}`,
-                  background: '#fff'
-                }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>{c.label}</div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: c.color || '#111827', lineHeight: 1.2 }}>
-                    {c.label === '综合评估' ? (
-                      <span style={{ fontSize: 20 }}>{c.value}</span>
-                    ) : c.value}
-                    {c.sub && c.label !== '综合评估' && <span style={{ fontSize: 13, color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>{c.sub}</span>}
-                  </div>
-                  {c.label === '综合评估' && gradeDesc && (
-                    <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{gradeDesc}</div>
-                  )}
-                </div>
-              ))}
+        {/* ═══════════════════════ 综合评分卡 (Image 1) ═══════════════════════ */}
+        <div style={{
+          background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10,
+          padding: 20, marginBottom: 20, display: 'flex', gap: 20, alignItems: 'flex-start',
+        }}>
+          {/* 左：大分数 + 等级 */}
+          <div style={{ flex: '0 0 auto', minWidth: 110, textAlign: 'center' }}>
+            <div style={{ fontSize: 68, fontWeight: 800, color: '#111827', lineHeight: 1, letterSpacing: '-2px' }}>
+              {summary?.overall_score ?? '—'}
             </div>
-          );
-        })()}
-
-        {/* 评分构成：通用70% + 火山30% */}
-        {(summary?.generic_score != null || summary?.volcano_score != null) && (
-          <div style={{ ...S.card, marginBottom: 20, padding: '14px 16px' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10 }}>
-              评分构成
-              <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af', marginLeft: 8 }}>
-                综合 = 通用×70% + 火山×30%
-              </span>
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2, marginBottom: 8 }}>/ 100 分</div>
+            {/* 等级徽章 */}
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 700,
+              background: gradeColor + '18', color: gradeColor, border: `1px solid ${gradeColor}50`,
+            }}>
+              <span style={{ fontSize: 16, fontWeight: 800 }}>{letter}</span>
+              <span style={{ fontSize: 11 }}>{grade}</span>
             </div>
-            {[
-              { label: '通用评估 (70%)', score: summary.generic_score, hint: '基于上传的通用评估标准' },
-              ...(summary.volcano_score != null
-                ? [{ label: '火山评估 (30%)', score: summary.volcano_score, hint: '基于上传的火山合规规则' }]
-                : []),
-            ].map((d) => (
-              <div key={d.label} style={{ marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{d.label}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280' }}>
-                    {d.score ?? 0}<span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 2 }}>/100</span>
-                    <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 8 }}>({d.hint})</span>
-                  </span>
-                </div>
-                <div style={{ width: '100%', height: 6, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{
-                    width: `${Math.min(d.score ?? 0, 100)}%`, height: '100%', borderRadius: 3,
-                    background: (d.score ?? 0) >= 80 ? '#111827' : (d.score ?? 0) >= 60 ? '#6b7280' : '#d1d5db',
-                    transition: 'width 0.5s',
-                  }} />
-                </div>
-              </div>
-            ))}
+            {/* 测试通过 */}
+            <div style={{ marginTop: 10, fontSize: 11, color: '#6b7280' }}>
+              {summary?.passed_tests ?? '—'} / {summary?.total_tests ?? '—'} 通过
+              {summary?.pass_rate != null && (
+                <span style={{ marginLeft: 4, fontWeight: 600, color: '#374151' }}>
+                  ({Math.round(summary.pass_rate * 100)}%)
+                </span>
+              )}
+            </div>
           </div>
-        )}
 
-        {/* 通用评估维度 — 动态渲染，支持任意评估标准 */}
+          {/* 中：进度条 + 评分构成 */}
+          <div style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
+            {/* 综合得分进度条（带 60/75/90 标注） */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>综合得分</span>
+                <span style={{
+                  fontSize: 10, background: '#f3f4f6', padding: '1px 8px', borderRadius: 10,
+                  color: '#374151', fontWeight: 600,
+                }}>
+                  {summary?.generic_score != null && summary?.volcano_score != null
+                    ? '加权平均 · 通用×80% + 火山×20%' : '加权平均'}
+                </span>
+              </div>
+              <div style={{ position: 'relative', height: 12, background: '#f3f4f6', borderRadius: 6 }}>
+                <div style={{
+                  position: 'absolute', left: 0, top: 0,
+                  width: `${Math.min(summary?.overall_score ?? 0, 100)}%`,
+                  height: '100%', borderRadius: 6,
+                  background: (summary?.overall_score ?? 0) >= 90 ? '#10b981'
+                    : (summary?.overall_score ?? 0) >= 75 ? '#f59e0b' : '#ef4444',
+                  transition: 'width 0.8s ease',
+                }} />
+                {/* 阈值标记 */}
+                {[60, 75, 90].map((t) => (
+                  <div key={t} style={{
+                    position: 'absolute', left: `${t}%`, top: -3, bottom: -3,
+                    width: 2, background: '#374151', borderRadius: 1, zIndex: 2,
+                  }}>
+                    <div style={{
+                      position: 'absolute', bottom: -18, left: '50%',
+                      transform: 'translateX(-50%)', fontSize: 9, color: '#6b7280', whiteSpace: 'nowrap',
+                    }}>{t}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ height: 18 }} />{/* 为标记数字留空间 */}
+            </div>
+
+            {/* 评分构成分项 */}
+            {(summary?.generic_score != null || summary?.volcano_score != null) && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  summary?.generic_score != null && { label: '通用评估', score: summary.generic_score, weight: '80%', hint: '基于通用评估标准' },
+                  summary?.volcano_score != null && { label: '火山评估', score: summary.volcano_score, weight: '20%', hint: '基于火山合规规则' },
+                ].filter(Boolean).map((d) => (
+                  <div key={d.label}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <span style={{ fontSize: 11, color: '#6b7280' }}>
+                        {d.label} <span style={{ fontSize: 10, color: '#9ca3af' }}>×{d.weight}</span>
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>
+                        {d.score}/100
+                        <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 400, marginLeft: 6 }}>({d.hint})</span>
+                      </span>
+                    </div>
+                    <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3 }}>
+                      <div style={{
+                        width: `${Math.min(d.score ?? 0, 100)}%`, height: '100%', borderRadius: 3,
+                        background: (d.score ?? 0) >= 80 ? '#10b981' : (d.score ?? 0) >= 60 ? '#f59e0b' : '#ef4444',
+                        transition: 'width 0.6s',
+                      }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 右：雷达图 + 维度列表 */}
+          {dimList.length >= 3 && (
+            <div style={{ flex: '0 0 auto', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <RadarChart dimensions={dimList} size={120} />
+              <div style={{ fontSize: 11, minWidth: 90 }}>
+                {dimList.map((d, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#111827', flexShrink: 0 }} />
+                    <span style={{ color: '#6b7280', flex: 1 }}>{d.name}</span>
+                    <span style={{ fontWeight: 700, color: '#111827', marginLeft: 4 }}>
+                      {d.score}{d.max != null ? `/${d.max}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ═══════════════════════ 通用评估维度 (Image 2) ═════════════════════ */}
         {dimensional_scores && Object.keys(dimensional_scores).length > 0 && (() => {
           const dimEntries = Object.entries(dimensional_scores);
-          // 自动检测分制：任一值 > 5 视为百分制，否则 1-5 制
-          const rawScores = dimEntries.map(([, e]) => (typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0)));
-          const maxRaw = Math.max(...rawScores);
-          const isHundredScale = maxRaw > 5;
-          const maxScale = isHundredScale ? 100 : 5;
+          const hasMax = dimEntries.some(([, e]) => typeof e === 'object' && e?.max != null && e.max > 0);
+          const rawScores = dimEntries.map(([, e]) => typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0));
+          const maxRaw = Math.max(...rawScores, 0);
+          const isHundredScale = hasMax || maxRaw > 5;
+          const totalEarned = hasMax ? dimEntries.reduce((s, [, e]) => s + (typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0)), 0) : null;
+          const totalMax    = hasMax ? dimEntries.reduce((s, [, e]) => s + (typeof e === 'object' ? (e?.max   ?? 0) : 0), 0) : null;
+          const cols = Math.min(dimEntries.length, 4);
 
           return (
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>
-                通用评估维度
-                <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af', marginLeft: 8 }}>
-                  满分 {maxScale} 分制 · 共 {dimEntries.length} 项
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>通用评估维度</span>
+                <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                  {hasMax ? `各维度由 eval skill 定义 · 共 ${dimEntries.length} 项` : `共 ${dimEntries.length} 项`}
                 </span>
+                {hasMax && totalMax > 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginLeft: 4 }}>
+                    合计 {totalEarned}/{totalMax}
+                  </span>
+                )}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(dimEntries.length, 4)}, 1fr)`, gap: 10 }}>
+
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 10 }}>
                 {dimEntries.map(([dimKey, entry]) => {
                   const score   = typeof entry === 'object' ? (entry?.score   ?? null) : entry;
+                  const dimMax  = typeof entry === 'object' ? (entry?.max     ?? null) : null;
                   const comment = typeof entry === 'object' ? (entry?.comment ?? null) : null;
-                  const score100 = score != null ? (isHundredScale ? score : score * 20) : null;
+                  const score100 = score == null ? null
+                    : dimMax != null && dimMax > 0 ? Math.round(score / dimMax * 100)
+                    : isHundredScale ? score : score * 20;
                   const passedThreshold = score100 != null && score100 >= 70;
-                  const dimColor = score100 == null ? '#9ca3af'
-                    : score100 >= 80 ? '#111827'
-                    : score100 >= 60 ? '#374151'
-                    : '#9ca3af';
+                  const engName = DIM_ENGLISH[dimKey] || dimKey.toUpperCase().replace(/\s+/g, '_').slice(0, 14);
+                  const barColor = score100 == null ? '#d1d5db'
+                    : passedThreshold ? '#10b981' : score100 >= 50 ? '#f59e0b' : '#ef4444';
+
                   return (
-                    <Tooltip key={dimKey} title={comment || ''} placement="top">
-                      <div style={{
-                        ...S.card, padding: 14, textAlign: 'center', cursor: comment ? 'help' : 'default',
-                        borderLeft: `3px solid ${passedThreshold ? '#10b981' : score100 != null ? '#f59e0b' : '#e5e7eb'}`,
-                      }}>
-                        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, fontWeight: 600 }}>{dimKey}</div>
-                        <div style={{ fontSize: 26, fontWeight: 800, color: dimColor, lineHeight: 1 }}>
-                          {score ?? '—'}
-                        </div>
-                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>/ {maxScale}</div>
-                        {score100 != null && (
-                          <div style={{
-                            fontSize: 10, marginTop: 4, fontWeight: 600,
-                            color: passedThreshold ? '#10b981' : '#f59e0b',
-                          }}>
-                            {passedThreshold ? '✓ 达标' : '△ 偏低'}
-                          </div>
-                        )}
-                        {comment && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, textAlign: 'left', lineHeight: 1.4 }}>{comment}</div>}
+                    <div key={dimKey} style={{
+                      background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16,
+                      borderTop: `3px solid ${barColor}`,
+                    }}>
+                      {/* 大分数 */}
+                      <div style={{ fontSize: 34, fontWeight: 800, color: '#111827', lineHeight: 1 }}>
+                        {score ?? '—'}
                       </div>
-                    </Tooltip>
+                      <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: 6 }}>
+                        / {dimMax != null ? dimMax : isHundredScale ? 100 : 5} 分
+                      </div>
+                      {/* 英文副标题 */}
+                      <div style={{ fontSize: 9, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.08em', marginBottom: 2 }}>
+                        {engName}
+                      </div>
+                      {/* 中文名称 */}
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 10 }}>
+                        {dimKey}
+                      </div>
+                      {/* 进度条 */}
+                      <div style={{ height: 4, background: '#f3f4f6', borderRadius: 2, marginBottom: 8 }}>
+                        <div style={{ width: `${score100 ?? 0}%`, height: '100%', borderRadius: 2, background: barColor, transition: 'width 0.6s' }} />
+                      </div>
+                      {/* 达标状态 */}
+                      {score100 != null && (
+                        <div style={{ fontSize: 10, fontWeight: 600, color: passedThreshold ? '#10b981' : '#f59e0b', marginBottom: comment ? 6 : 0 }}>
+                          {passedThreshold ? `✓ 达标 (${score100}%)` : `△ 偏低 (${score100}%)`}
+                        </div>
+                      )}
+                      {/* 评论说明（完整显示，不折叠） */}
+                      {comment && (
+                        <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.45, borderTop: '1px solid #f3f4f6', paddingTop: 6, marginTop: 4 }}>
+                          {comment}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -698,134 +851,209 @@ export default function SkillEvaluatorModule() {
           );
         })()}
 
-        {/* Volcano evaluation dimensions */}
+        {/* ═══════════════════════ 火山评估维度 (Image 2 同款样式) ════════════ */}
         {results.volcano_skipped ? (
           <div style={{ marginBottom: 20, padding: '12px 14px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, fontSize: 12, color: '#92400e' }}>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ 火山评估 - 未获取标准</div>
-            <div>未上传火山规则 Skill，无法执行合规性评估。如需进行火山评估，请在左侧「4. 评估标准 Skill」中上传火山合规规则文件。</div>
+            <div>未上传火山规则 Skill，如需进行火山评估，请在左侧「4. 评估标准 Skill」中上传火山合规规则文件。</div>
           </div>
-        ) : results.volcano_dimensional_scores && Object.keys(results.volcano_dimensional_scores).length > 0 ? (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>
-                火山评估{results.volcano_score != null && <span style={{ fontSize: 12, fontWeight: 400, color: '#6b7280', marginLeft: 8 }}>综合 {results.volcano_score}/100</span>}
-              </div>
-              {results.volcano_compliance_summary && (
-                <Tag style={{ fontSize: 10, margin: 0 }}>{results.volcano_compliance_summary}</Tag>
-              )}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-              {Object.entries(results.volcano_dimensional_scores).map(([key, entry]) => {
-                const score = typeof entry === 'object' ? entry?.score : entry;
-                const comment = typeof entry === 'object' ? entry?.comment : null;
-                const issues = typeof entry === 'object' ? entry?.issues : null;
-                return (
-                  <Tooltip key={key} title={issues?.length ? issues.join('; ') : comment || ''} placement="top">
-                    <div style={{ ...S.card, padding: 14, textAlign: 'center', cursor: issues?.length ? 'help' : 'default' }}>
-                      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{key}</div>
-                      <div style={{ fontSize: 26, fontWeight: 800, color: score >= 4 ? '#059669' : score >= 3 ? '#d97706' : '#dc2626', lineHeight: 1 }}>{score ?? '—'}</div>
-                      <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>/ 5 分</div>
-                      {comment && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, textAlign: 'left', lineHeight: 1.4 }}>{comment}</div>}
-                    </div>
-                  </Tooltip>
-                );
-              })}
-            </div>
-            {/* Volcano fix suggestions */}
-            {results.volcano_fix_suggestions?.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>合规修复建议</div>
-                {results.volcano_fix_suggestions.map((fix, i) => (
-                  <div key={i} style={{ ...S.card, padding: 10, marginBottom: 6 }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
-                        background: fix.priority === '高' ? '#fef2f2' : fix.priority === '中' ? '#fff7ed' : '#f9fafb',
-                        color: fix.priority === '高' ? '#b91c1c' : fix.priority === '中' ? '#92400e' : '#6b7280',
-                        border: `1px solid ${fix.priority === '高' ? '#fecaca' : fix.priority === '中' ? '#fed7aa' : '#e5e7eb'}`,
-                      }}>{fix.priority}优先</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{fix.dimension}</span>
-                    </div>
-                    {fix.issue && <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>{fix.issue}</div>}
-                    {fix.fix && <div style={{ fontSize: 11, color: '#374151' }}>{fix.fix}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : null}
+        ) : results.volcano_dimensional_scores && Object.keys(results.volcano_dimensional_scores).length > 0 ? (() => {
+          const volcEntries = Object.entries(results.volcano_dimensional_scores);
+          const volcHasMax = volcEntries.some(([, e]) => typeof e === 'object' && e?.max != null && e.max > 0);
+          const volcRawScores = volcEntries.map(([, e]) => typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0));
+          const volcMaxRaw = Math.max(...volcRawScores, 0);
+          const isVolcHundred = volcHasMax || volcMaxRaw > 5;
+          const volcTotalEarned = volcHasMax ? volcEntries.reduce((s, [, e]) => s + (typeof e === 'object' ? (e?.score ?? 0) : (e ?? 0)), 0) : null;
+          const volcTotalMax    = volcHasMax ? volcEntries.reduce((s, [, e]) => s + (typeof e === 'object' ? (e?.max ?? 0) : 0), 0) : null;
+          const volcCols = Math.min(volcEntries.length, 4);
 
-        {/* Optimization suggestions */}
-        {results.optimization_suggestions?.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 12 }}>优化建议</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {results.optimization_suggestions.slice(0, 5).map((sug, i) => {
-                const priorityColors = {
-                  '高': { bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' },
-                  'high': { bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' },
-                  '中': { bg: '#fff7ed', border: '#fed7aa', text: '#92400e' },
-                  'medium': { bg: '#fff7ed', border: '#fed7aa', text: '#92400e' },
-                  '低': { bg: '#f9fafb', border: '#e5e7eb', text: '#6b7280' },
-                  'low': { bg: '#f9fafb', border: '#e5e7eb', text: '#6b7280' },
-                };
-                const priorityColor = priorityColors[sug.priority] || priorityColors['中'];
-                return (
-                  <div key={i} style={{
-                    ...S.card,
-                    padding: 12,
-                    background: priorityColor.bg,
-                    border: `1px solid ${priorityColor.border}`,
-                    marginBottom: 0
-                  }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 6 }}>
-                      <span style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: 3,
-                        background: '#fff',
-                        color: priorityColor.text,
-                        border: `1px solid ${priorityColor.border}`,
-                        flexShrink: 0
-                      }}>{sug.priority}优先</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#374151', flex: 1 }}>{sug.dimension || '通用'}</span>
-                      {sug.expected_impact && <span style={{ fontSize: 10, color: '#6b7280' }}>+{sug.expected_impact}</span>}
-                    </div>
-                    {sug.issue && <div style={{ fontSize: 11, color: '#4b5563', marginBottom: 4, lineHeight: 1.5 }}>{sug.issue}</div>}
-                    {(sug.suggestion || sug.fix) && (
-                      <div style={{ fontSize: 11, color: '#374151', lineHeight: 1.5, paddingTop: 4, borderTop: `1px solid ${priorityColor.border}` }}>
-                        <strong>建议：</strong> {sug.suggestion || sug.fix}
+          return (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>火山评估</span>
+                  <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                    {volcHasMax ? `各维度由 eval skill 定义 · 共 ${volcEntries.length} 项` : `共 ${volcEntries.length} 项`}
+                  </span>
+                  {volcHasMax && volcTotalMax > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>
+                      合计 {volcTotalEarned}/{volcTotalMax}
+                    </span>
+                  )}
+                  {results.volcano_score != null && (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>
+                      综合 {results.volcano_score}/100
+                    </span>
+                  )}
+                </div>
+                {results.volcano_compliance_summary && (
+                  <Tag style={{ fontSize: 10, margin: 0 }}>{results.volcano_compliance_summary}</Tag>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${volcCols}, 1fr)`, gap: 10 }}>
+                {volcEntries.map(([key, entry]) => {
+                  const score   = typeof entry === 'object' ? (entry?.score   ?? null) : entry;
+                  const dimMax  = typeof entry === 'object' ? (entry?.max     ?? null) : null;
+                  const comment = typeof entry === 'object' ? (entry?.comment ?? null) : null;
+                  const issues  = typeof entry === 'object' ? (entry?.issues  ?? null) : null;
+                  const score100 = score == null ? null
+                    : dimMax != null && dimMax > 0 ? Math.round(score / dimMax * 100)
+                    : isVolcHundred ? score : score * 20;
+                  const passed  = score100 != null && score100 >= 70;
+                  const barColor = score100 == null ? '#d1d5db'
+                    : passed ? '#059669' : score100 >= 50 ? '#d97706' : '#dc2626';
+                  const engName = DIM_ENGLISH[key] || key.toUpperCase().replace(/\s+/g, '_').slice(0, 14);
+                  const tooltipText = issues?.length ? issues.join('; ') : comment || '';
+
+                  return (
+                    <Tooltip key={key} title={tooltipText} placement="top">
+                      <div style={{
+                        background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16,
+                        borderTop: `3px solid ${barColor}`,
+                        cursor: tooltipText ? 'help' : 'default',
+                      }}>
+                        <div style={{ fontSize: 34, fontWeight: 800, color: '#111827', lineHeight: 1 }}>
+                          {score ?? '—'}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: 6 }}>
+                          / {dimMax != null ? dimMax : isVolcHundred ? 100 : 5} 分
+                        </div>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.08em', marginBottom: 2 }}>
+                          {engName}
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 10 }}>{key}</div>
+                        <div style={{ height: 4, background: '#f3f4f6', borderRadius: 2, marginBottom: 8 }}>
+                          <div style={{ width: `${score100 ?? 0}%`, height: '100%', borderRadius: 2, background: barColor, transition: 'width 0.6s' }} />
+                        </div>
+                        {score100 != null && (
+                          <div style={{ fontSize: 10, fontWeight: 600, color: passed ? '#059669' : '#d97706', marginBottom: comment ? 6 : 0 }}>
+                            {passed ? `✓ 达标 (${score100}%)` : `△ 偏低 (${score100}%)`}
+                          </div>
+                        )}
+                        {comment && (
+                          <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.45, borderTop: '1px solid #f3f4f6', paddingTop: 6, marginTop: 4 }}>
+                            {comment}
+                          </div>
+                        )}
+                        {/* 显示 issues（火山独有） */}
+                        {issues?.length > 0 && (
+                          <div style={{ marginTop: 6 }}>
+                            {issues.map((iss, idx) => (
+                              <div key={idx} style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>· {iss}</div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-              {results.optimization_suggestions.length > 5 && (
-                <div style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', padding: 8 }}>
-                  还有 {results.optimization_suggestions.length - 5} 条建议，查看详细报告了解更多
+                    </Tooltip>
+                  );
+                })}
+              </div>
+
+              {/* Volcano fix suggestions */}
+              {results.volcano_fix_suggestions?.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>合规修复建议</div>
+                  {results.volcano_fix_suggestions.map((fix, i) => (
+                    <div key={i} style={{ ...S.card, padding: 10, marginBottom: 6 }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
+                          background: fix.priority === '高' ? '#fef2f2' : fix.priority === '中' ? '#fff7ed' : '#f9fafb',
+                          color: fix.priority === '高' ? '#b91c1c' : fix.priority === '中' ? '#92400e' : '#6b7280',
+                          border: `1px solid ${fix.priority === '高' ? '#fecaca' : fix.priority === '中' ? '#fed7aa' : '#e5e7eb'}`,
+                        }}>{fix.priority}优先</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{fix.dimension}</span>
+                      </div>
+                      {fix.issue && <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>{fix.issue}</div>}
+                      {fix.fix   && <div style={{ fontSize: 11, color: '#374151' }}>{fix.fix}</div>}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
+          );
+        })() : null}
+
+        {/* ═══════════════════════ 优化建议预览（前3条，完整列表在「优化方案」Tab） ══ */}
+        {results.optimization_suggestions?.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>优化建议</span>
+              <span style={{ fontSize: 11, color: '#6b7280' }}>
+                共 {results.optimization_suggestions.length} 条 · <span
+                  style={{ color: '#374151', textDecoration: 'underline', cursor: 'pointer' }}
+                  onClick={() => set({ resultsTab: 'optimization' })}>查看全部 →</span>
+              </span>
+            </div>
+            {results.optimization_suggestions.slice(0, 3).map((sug, i) => {
+              const isHigh = sug.priority === 'high' || sug.priority === '高';
+              const isMid  = sug.priority === 'medium' || sug.priority === '中';
+              const badge  = isHigh ? { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca', label: 'High' }
+                           : isMid  ? { bg: '#fff7ed', color: '#92400e', border: '#fed7aa', label: 'Med'  }
+                           :          { bg: '#f9fafb', color: '#6b7280', border: '#e5e7eb', label: 'Low'  };
+              return (
+                <div key={i} style={{
+                  background: '#fff', border: '1px solid #e5e7eb', borderRadius: 7,
+                  padding: '10px 14px', marginBottom: 6,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: sug.issue ? 5 : 0 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', minWidth: 24 }}>
+                      S-{i + 1}
+                    </span>
+                    {sug.dimension && (
+                      <span style={{ fontSize: 10, padding: '1px 6px', background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', borderRadius: 4, fontWeight: 600 }}>
+                        {sug.dimension}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
+                      {badge.label}
+                    </span>
+                    <span style={{ flex: 1, fontSize: 11, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {sug.issue || sug.suggestion}
+                    </span>
+                    {sug.expected_impact && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', flexShrink: 0 }}>
+                        +{sug.expected_impact}
+                      </span>
+                    )}
+                  </div>
+                  {sug.suggestion && sug.issue && (
+                    <div style={{ fontSize: 11, color: '#6b7280', paddingLeft: 32, marginTop: 3, lineHeight: 1.4 }}>
+                      {sug.suggestion}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
-        {/* Weakness analysis */}
+        {/* ═══════════════════════ 弱点分析 ════════════════════════════════════ */}
         {weakness_analysis && Object.keys(weakness_analysis).length > 0 && (
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>弱点分析</div>
             <div style={{ ...S.card, background: '#fafafa' }}>
-              {weakness_analysis.lowest_dimension && <div style={{ marginBottom: 8, fontSize: 12 }}><span style={{ fontWeight: 600, color: '#6b7280' }}>最低得分维度：</span><span style={{ color: '#111827', fontWeight: 600 }}>{weakness_analysis.lowest_dimension}</span></div>}
+              {weakness_analysis.lowest_dimension && (
+                <div style={{ marginBottom: 8, fontSize: 12 }}>
+                  <span style={{ fontWeight: 600, color: '#6b7280' }}>最低得分维度：</span>
+                  <span style={{ color: '#111827', fontWeight: 600 }}>{weakness_analysis.lowest_dimension}</span>
+                </div>
+              )}
               {weakness_analysis.common_failures?.length > 0 && (
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>常见失败模式</div>
-                  {weakness_analysis.common_failures.map((f, i) => <div key={i} style={{ fontSize: 12, color: '#374151', paddingLeft: 10, marginTop: 2 }}>· {f}</div>)}
+                  {weakness_analysis.common_failures.map((f, i) => (
+                    <div key={i} style={{ fontSize: 12, color: '#374151', paddingLeft: 10, marginTop: 2 }}>· {f}</div>
+                  ))}
                 </div>
               )}
               {weakness_analysis.systematic_issues?.length > 0 && (
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>系统性问题</div>
-                  {weakness_analysis.systematic_issues.map((issue, i) => <div key={i} style={{ fontSize: 12, color: '#374151', paddingLeft: 10, marginTop: 2 }}>· {issue}</div>)}
+                  {weakness_analysis.systematic_issues.map((issue, i) => (
+                    <div key={i} style={{ fontSize: 12, color: '#374151', paddingLeft: 10, marginTop: 2 }}>· {issue}</div>
+                  ))}
                 </div>
               )}
             </div>
@@ -966,34 +1194,145 @@ export default function SkillEvaluatorModule() {
       );
     }
 
+    // 统计各优先级数量
+    const highCnt = sorted.filter((s) => s.priority === 'high' || s.priority === '高').length;
+    const midCnt  = sorted.filter((s) => s.priority === 'medium' || s.priority === '中').length;
+    const lowCnt  = sorted.filter((s) => s.priority === 'low' || s.priority === '低').length;
+
     return (
       <div>
-        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
-          共 <strong style={{ color: '#111827' }}>{sorted.length}</strong> 条优化建议，按优先级排序
+        {/* 统计头部 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <span style={{ fontSize: 13, color: '#374151', fontWeight: 600 }}>
+            共 <strong style={{ color: '#111827' }}>{sorted.length}</strong> 条优化建议
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {highCnt > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', fontWeight: 700 }}>High ×{highCnt}</span>}
+            {midCnt  > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: '#fff7ed', color: '#92400e', border: '1px solid #fed7aa', fontWeight: 700 }}>Med ×{midCnt}</span>}
+            {lowCnt  > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: '#f9fafb', color: '#6b7280', border: '1px solid #e5e7eb', fontWeight: 700 }}>Low ×{lowCnt}</span>}
+          </div>
         </div>
-        {sorted.map((s, i) => {
-          const priorityCn = { 'high': '高', 'medium': '中', 'low': '低' }[s.priority] || s.priority;
-          const isHigh = s.priority === 'high' || s.priority === '高';
-          const isMid  = s.priority === 'medium' || s.priority === '中';
-          const badge  = isHigh ? { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' }
-                       : isMid  ? { bg: '#fff7ed', color: '#92400e', border: '#fed7aa' }
-                       :          { bg: '#f9fafb', color: '#6b7280', border: '#e5e7eb' };
-          const txt = `【${s.dimension}】问题：${s.issue}\n建议：${s.suggestion}${s.expected_impact ? `\n预期提升：${s.expected_impact}` : ''}`;
-          return (
-            <div key={i} style={{ ...S.card, marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', border: `1px solid ${badge.border}`, borderRadius: 3, background: badge.bg, color: badge.color }}>{priorityCn}优先</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{s.dimension}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9ca3af', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => copyText(txt)}>复制</span>
+
+        {/* ── 可折叠建议列表 (Image 3) ─────────────────────────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
+          {sorted.map((s, i) => {
+            const rowKey  = `opt-sug-${i}`;
+            const isOpen  = !!expandedRows[rowKey];
+            const isHigh  = s.priority === 'high' || s.priority === '高';
+            const isMid   = s.priority === 'medium' || s.priority === '中';
+            const badge   = isHigh ? { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca', label: 'High' }
+                          : isMid  ? { bg: '#fff7ed', color: '#92400e', border: '#fed7aa', label: 'Med'  }
+                          :          { bg: '#f9fafb', color: '#6b7280', border: '#e5e7eb', label: 'Low'  };
+            const copyTxt = `【${s.dimension || '通用'}】问题：${s.issue || ''}\n建议：${s.suggestion || s.fix || ''}${s.expected_impact ? `\n预期提升：+${s.expected_impact}` : ''}`;
+
+            return (
+              <div key={i} style={{
+                background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+                overflow: 'hidden', boxShadow: isOpen ? '0 2px 8px rgba(0,0,0,0.05)' : 'none',
+              }}>
+                {/* 可点击的标题行 */}
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                    cursor: 'pointer', background: isOpen ? '#f9fafb' : '#fff',
+                    transition: 'background 0.15s',
+                  }}
+                  onClick={() => set({ expandedRows: { ...expandedRows, [rowKey]: !isOpen } })}
+                >
+                  {/* 编号 */}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', minWidth: 28, flexShrink: 0 }}>
+                    S-{i + 1}
+                  </span>
+                  {/* 维度标签 */}
+                  {s.dimension && (
+                    <span style={{
+                      fontSize: 10, padding: '1px 7px', background: '#f1f5f9',
+                      color: '#374151', border: '1px solid #e2e8f0', borderRadius: 4,
+                      fontWeight: 600, flexShrink: 0,
+                    }}>
+                      {s.dimension}
+                    </span>
+                  )}
+                  {/* 优先级徽章 */}
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 4,
+                    background: badge.bg, color: badge.color,
+                    border: `1px solid ${badge.border}`, flexShrink: 0,
+                  }}>
+                    {badge.label}
+                  </span>
+                  {/* 问题摘要（截断） */}
+                  <span style={{
+                    flex: 1, fontSize: 12, color: '#374151',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
+                    {s.issue || s.suggestion || s.fix || '优化建议'}
+                  </span>
+                  {/* 预期分数提升 */}
+                  {s.expected_impact && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', flexShrink: 0 }}>
+                      +{s.expected_impact}
+                    </span>
+                  )}
+                  {/* 展开箭头 */}
+                  <span style={{ fontSize: 10, color: '#9ca3af', flexShrink: 0, marginLeft: 2 }}>
+                    {isOpen ? '▲' : '▼'}
+                  </span>
+                </div>
+
+                {/* 展开内容 */}
+                {isOpen && (
+                  <div style={{ padding: '12px 14px', borderTop: '1px solid #f3f4f6' }}>
+                    {/* 问题描述 */}
+                    {s.issue && (
+                      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8, lineHeight: 1.5 }}>
+                        <span style={{ fontWeight: 600, color: '#374151' }}>问题描述：</span>{s.issue}
+                      </div>
+                    )}
+                    {/* 优化方案 */}
+                    {(s.suggestion || s.fix) && (
+                      <div style={{
+                        fontSize: 12, color: '#374151', marginBottom: 12, lineHeight: 1.6,
+                        background: '#f9fafb', borderRadius: 6, padding: '8px 12px',
+                        border: '1px solid #f3f4f6',
+                      }}>
+                        <span style={{ fontWeight: 600 }}>优化方案：</span>{s.suggestion || s.fix}
+                      </div>
+                    )}
+                    {/* 操作按钮行 */}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Button size="small" style={{ fontSize: 11 }} onClick={() => copyText(copyTxt)}>
+                        复制建议
+                      </Button>
+                      <Button size="small" style={{ fontSize: 11 }} onClick={() => message.info('请导出报告后查看详细 Diff')}>
+                        查看 Diff
+                      </Button>
+                      <Button size="small" style={{ fontSize: 11 }} onClick={() => message.info('可将该用例补充到测试集中重新评估')}>
+                        补充测试用例
+                      </Button>
+                      <Button size="small" danger style={{ fontSize: 11 }}
+                        onClick={() => set({ expandedRows: { ...expandedRows, [rowKey]: false } })}>
+                        忽略
+                      </Button>
+                      {/* 置信度 */}
+                      {s.confidence != null && (
+                        <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 'auto' }}>
+                          置信度 {typeof s.confidence === 'number' ? `${Math.round(s.confidence * 100)}%` : s.confidence}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-              {s.issue      && <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}><span style={{ fontWeight: 600 }}>问题描述：</span>{s.issue}</div>}
-              {s.suggestion && <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}><span style={{ fontWeight: 600 }}>优化方案：</span>{s.suggestion}</div>}
-              {s.expected_impact && <div style={{ fontSize: 11, color: '#9ca3af' }}>预期提升：{s.expected_impact}</div>}
-            </div>
-          );
-        })}
-        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 16, marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 10, textAlign: 'center' }}>点击后将根据优化建议自动改写 SKILL.md，并保存为新版本</div>
+            );
+          })}
+        </div>
+
+        {/* 一键优化按钮 */}
+        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 16 }}>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 10, textAlign: 'center' }}>
+            点击后将根据以上优化建议自动改写 SKILL.md，并保存为新版本
+          </div>
           <Button
             style={{ width: '100%', height: 42, borderRadius: 4, fontWeight: 700, fontSize: 14, background: '#111827', borderColor: '#111827', color: '#fff' }}
             loading={optimizing}
@@ -1133,6 +1472,46 @@ export default function SkillEvaluatorModule() {
                 }}
               />
               {testCasesError && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>{testCasesError}</div>}
+            </div>
+
+            <div style={S.divider} />
+
+            {/* 评估标准 Skill（展开模式同步显示，修复标准消失 Bug） */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ ...S.label, marginBottom: 0 }}>4. 评估标准 Skill</span>
+                <Button size="small" type="link" style={{ fontSize: 11, padding: 0, height: 'auto', color: '#374151' }} onClick={() => { set({ expanded: false }); setActiveTab('config-center'); }}>
+                  配置中心 →
+                </Button>
+              </div>
+              {[
+                { type: 'generic',  label: '通用评估规则', std: genericStd  },
+                { type: 'volcano',  label: '火山合规规则', std: volcanoStd  },
+              ].map(({ type, label, std }) => (
+                <div key={type} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: 6, padding: '6px 10px', background: '#f9fafb', borderRadius: 6,
+                  border: '1px solid #e5e7eb', borderLeft: std ? '3px solid #111827' : '3px solid #d1d5db',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: std ? '#111827' : '#9ca3af' }}>{label}</span>
+                    <div style={{ fontSize: 11, color: std ? '#374151' : '#9ca3af', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {std ? std.name : '使用内置规则'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0, marginLeft: 8 }}>
+                    <Upload accept=".md,.txt,.markdown,.zip,.gz,.tgz" showUploadList={false} beforeUpload={(f) => handleInlineStandardUpload(type, label, f)}>
+                      <Button size="small" style={{ fontSize: 11, height: 22, padding: '0 6px' }}>上传</Button>
+                    </Upload>
+                    {std && (
+                      <Button size="small" danger style={{ fontSize: 11, height: 22, padding: '0 6px' }}
+                        onClick={() => { clearEvalStandard(type); message.info(`已清除「${label}」`); }}>
+                        清除
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <Button

@@ -97,39 +97,165 @@ async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemP
   throw new Error(`不支持的模型供应商: ${modelConfig.provider}`);
 }
 
-// ── Eval Standard resolver ─────────────────────────────────────────────────
+// ── Eval Standard resolver + Python script runner ─────────────────────────
 
 /**
- * 从评估标准对象中提取纯文本内容。
- * - 文本文件：直接返回 content 字符串
- * - 压缩包（base64 zip）：解压后返回主 SKILL.md 内容
- * - 字符串（向后兼容）：直接返回
- * @param {string|object|null} standard
- * @returns {Promise<string|null>}
+ * 从 SKILL.md 的维度表格中解析 ID → {name, max} 映射。
+ * 匹配格式：| dimension_id | 中文名称 | 15 |
  */
-async function resolveSkillContent(standard) {
-  if (!standard) return null;
-  // 向后兼容：旧版本直接传字符串
-  if (typeof standard === 'string') return standard;
-  // 普通文本文件
-  if (!standard.isCompressed) return standard.content || null;
-  // 压缩包：base64 → Buffer → AdmZip
-  if (!standard.base64) return null;
+function parseDimensionTable(text) {
+  if (!text) return {};
+  const map = {};
+  const re = /^\|\s*([a-z][a-z0-9_]+)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|/gm;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const id   = m[1].trim();
+    const name = m[2].trim().replace(/`/g, '').replace(/\*\*/g, '');
+    const max  = parseInt(m[3], 10);
+    if (id.length > 2 && max >= 5 && max <= 100) map[id] = { name, max };
+  }
+  return map;
+}
+
+/**
+ * 从 SKILL.md 提取评估脚本相对路径。
+ * 匹配格式：评估脚本：`scripts/evaluate_skill.py`
+ */
+function parseScriptName(text) {
+  if (!text) return null;
+  const m = text.match(/评估脚本[：:]\s*`?([^\s`\n]+\.py)`?/m);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * 将 Python 脚本 category_scores 映射到前端 dimensional_scores 格式。
+ */
+function mapCategoryScores(categoryScores, dimensionMap) {
+  const result = {};
+  for (const [id, data] of Object.entries(categoryScores || {})) {
+    const earned = data.earned ?? 0;
+    const avail  = data.available ?? 0;
+    const name   = dimensionMap[id]?.name || id;
+    result[name] = { score: earned, max: avail, comment: `${earned}/${avail} 分` };
+  }
+  return result;
+}
+
+/**
+ * 运行评估 Skill zip 中的 Python 脚本，对目标 Skill 进行确定性评估。
+ * 注意：Vercel 标准 serverless 环境无 Python 3，此函数将失败并返回 null（优雅降级到 LLM）。
+ */
+async function runEvalScript(evalSkillBase64, targetContent, targetName, scriptRelPath) {
+  if (!evalSkillBase64) return null;
+  try {
+    const fs      = await import('fs');
+    const os      = await import('os');
+    const path    = await import('path');
+    const cp      = await import('child_process');
+    const { promisify } = await import('util');
+    const execFileAsync = promisify(cp.execFile);
+
+    const AdmZip = (await import('adm-zip')).default;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-eval-'));
+
+    try {
+      const buf  = Buffer.from(evalSkillBase64, 'base64');
+      const zip  = new AdmZip(buf);
+      const evalDir = path.join(tmpDir, 'eval-skill');
+      fs.mkdirSync(evalDir, { recursive: true });
+      const entries = zip.getEntries().filter((e) => !e.isDirectory && !e.entryName.includes('__MACOSX'));
+      for (const entry of entries) {
+        const dest = path.join(evalDir, entry.entryName);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, entry.getData());
+      }
+      let evalRoot = evalDir;
+      const tops = fs.readdirSync(evalDir);
+      if (tops.length === 1 && fs.statSync(path.join(evalDir, tops[0])).isDirectory()) {
+        evalRoot = path.join(evalDir, tops[0]);
+      }
+      let scriptPath = null;
+      if (scriptRelPath) {
+        const sp = path.join(evalRoot, scriptRelPath);
+        if (fs.existsSync(sp)) scriptPath = sp;
+      }
+      if (!scriptPath) {
+        const sd = path.join(evalRoot, 'scripts');
+        if (fs.existsSync(sd)) {
+          const py = fs.readdirSync(sd).filter((f) => f.endsWith('.py'));
+          if (py.length) scriptPath = path.join(sd, py[0]);
+        }
+      }
+      if (!scriptPath) return null;
+
+      let folderName = (targetName || 'target-skill').replace(/[^a-zA-Z0-9-_]/g, '-');
+      const fmMatch = (targetContent || '').match(/^---[\s\S]*?^name:\s*(.+?)$/m);
+      if (fmMatch) { const p = fmMatch[1].trim().replace(/^["']|["']$/g, ''); if (p) folderName = p; }
+      const targetFolder = path.join(tmpDir, 'target', folderName);
+      fs.mkdirSync(targetFolder, { recursive: true });
+      fs.writeFileSync(path.join(targetFolder, 'SKILL.md'), targetContent || '', 'utf8');
+
+      const { stdout, stderr } = await execFileAsync(
+        'python3', [scriptPath, targetFolder, '--format', 'json'],
+        { timeout: 30000, maxBuffer: 2 * 1024 * 1024 }
+      );
+      if (stderr) console.warn('[runEvalScript] stderr:', stderr.substring(0, 200));
+      const result = JSON.parse(stdout.trim());
+      console.log(`[runEvalScript] 脚本完成，score: ${result.score}`);
+      return result;
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    }
+  } catch (err) {
+    console.warn('[runEvalScript] 失败（Vercel 无 Python？）:', err.message);
+    return null;
+  }
+}
+
+/**
+ * 从评估标准对象中提取内容，返回 { text, dimensionMap, scriptName, base64 }。
+ * - 文本文件：直接解析
+ * - 压缩包：读取全部 .md/.txt/.yaml 文件并拼接
+ */
+async function resolveEvalSkillContent(standard) {
+  const empty = { text: null, dimensionMap: {}, scriptName: null, base64: null };
+  if (!standard) return empty;
+  if (typeof standard === 'string') {
+    return { text: standard, dimensionMap: parseDimensionTable(standard), scriptName: parseScriptName(standard), base64: null };
+  }
+  if (!standard.isCompressed) {
+    const text = standard.content || null;
+    return { text, dimensionMap: parseDimensionTable(text), scriptName: parseScriptName(text), base64: null };
+  }
+  if (!standard.base64) return empty;
   try {
     const AdmZip = (await import('adm-zip')).default;
-    const buf = Buffer.from(standard.base64, 'base64');
-    const zip = new AdmZip(buf);
-    const entries = zip.getEntries().filter((e) => !e.isDirectory);
-    // 优先找 SKILL.md，其次找任意 .md，最后找任意文本文件
-    const skillMd = entries.find((e) => /SKILL\.md$/i.test(e.entryName));
-    const anyMd   = entries.find((e) => /\.md$/i.test(e.entryName));
-    const anyTxt  = entries.find((e) => /\.(md|txt|markdown)$/i.test(e.entryName));
-    const entry   = skillMd || anyMd || anyTxt || entries[0];
-    if (!entry) return null;
-    return entry.getData().toString('utf8');
+    const buf  = Buffer.from(standard.base64, 'base64');
+    const zip  = new AdmZip(buf);
+    const all  = zip.getEntries().filter((e) => !e.isDirectory && !e.entryName.includes('__MACOSX'));
+    const txts = all.filter((e) => /\.(md|txt|yaml|yml)$/i.test(e.entryName));
+    txts.sort((a, b) => {
+      const rank = (n) => /SKILL\.md$/i.test(n) ? 0 : /references\//i.test(n) ? 1 : 2;
+      return rank(a.entryName) - rank(b.entryName);
+    });
+    let text = null;
+    if (txts.length > 0) {
+      text = txts.map((e) => {
+        const fn = e.entryName.split('/').filter(Boolean).pop();
+        return `<!-- file: ${fn} -->\n${e.getData().toString('utf8')}`;
+      }).join('\n\n---\n\n');
+    } else if (all.length > 0) {
+      text = all[0].getData().toString('utf8');
+    }
+    const skillMdEntry = txts.find((e) => /SKILL\.md$/i.test(e.entryName));
+    const skillMdText  = skillMdEntry ? skillMdEntry.getData().toString('utf8') : text;
+    const dimensionMap = parseDimensionTable(skillMdText);
+    const scriptName   = parseScriptName(skillMdText);
+    console.log(`[resolveEvalSkillContent] zip 解析，维度表 ${Object.keys(dimensionMap).length} 项，脚本: ${scriptName || '未找到'}`);
+    return { text, dimensionMap, scriptName, base64: standard.base64 };
   } catch (err) {
-    console.error('[resolveSkillContent] 解压失败:', err.message);
-    return null;
+    console.error('[resolveEvalSkillContent] 解压失败:', err.message);
+    return empty;
   }
 }
 
@@ -164,8 +290,10 @@ ${skillContent}
 ## 测试执行结果（共 ${totalTests} 条）
 ${resultsForJudge}
 
-请严格返回 JSON（不要输出任何其他内容）。dimensional_scores 的每个 key 必须是系统提示中定义的维度名，有多少维度就写多少个 key：
-{"summary":{"overall_score":0,"total_tests":${totalTests},"passed_tests":0,"failed_tests":0,"pass_rate":0.0},"dimensional_scores":{"<系统提示定义的维度1>":{"score":80,"comment":"评分理由"},"<系统提示定义的维度2>":{"score":75,"comment":"评分理由"},"<...每个维度都要写>":{"score":0,"comment":""}},"detailed_results":[{"id":"1","name":"","passed":true,"actual_output":"","failure_reason":"","latency_ms":0,"scores":{}}],"weakness_analysis":{"lowest_dimension":"","common_failures":[],"systematic_issues":[]},"optimization_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","suggestion":"","expected_impact":""}]}`;
+请严格返回 JSON（不要输出任何其他内容）。
+- dimensional_scores 的每个 key 必须是系统提示中定义的维度名，有多少维度就写多少个 key
+- 每个维度必须包含 score（实际得分）和 max（该维度在系统提示评分规则中的满分），从系统提示评分规则里直接读取满分值，不得估算或捏造
+{"summary":{"total_tests":${totalTests},"passed_tests":0,"failed_tests":0,"pass_rate":0.0},"dimensional_scores":{"<维度1名>":{"score":12,"max":15,"comment":"评分理由"},"<维度2名>":{"score":16,"max":20,"comment":"评分理由"},"<...每个维度>":{"score":0,"max":0,"comment":""}},"detailed_results":[{"id":"1","name":"","passed":true,"actual_output":"","failure_reason":"","latency_ms":0,"scores":{}}],"weakness_analysis":{"lowest_dimension":"","common_failures":[],"systematic_issues":[]},"optimization_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","suggestion":"","expected_impact":""}]}`;
 }
 
 /**
@@ -226,8 +354,10 @@ ${skillName || '未提供'}
 ${skillContent}
 \`\`\`
 
-请严格返回 JSON（不要输出其他内容）。dimensional_scores 的每个 key 必须是系统提示中定义的检查维度名，有多少维度就写多少个 key：
-{"dimensional_scores":{"<系统提示定义的维度1>":{"score":80,"comment":"评分理由","issues":[]},"<系统提示定义的维度2>":{"score":90,"comment":"","issues":[]},"<...每个维度都要写>":{"score":0,"comment":"","issues":[]}},"compliance_summary":"总体合规性总结","fix_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","fix":""}]}`;
+请严格返回 JSON（不要输出其他内容）。
+- dimensional_scores 的每个 key 必须是系统提示中定义的检查维度名，有多少维度就写多少个 key
+- 每个维度必须包含 score（实际得分）和 max（该维度在系统提示评分规则中的满分），从系统提示评分规则里直接读取满分值，不得估算或捏造
+{"dimensional_scores":{"<维度1名>":{"score":45,"max":55,"comment":"评分理由","issues":[]},"<维度2名>":{"score":20,"max":25,"comment":"","issues":[]},"<...每个维度>":{"score":0,"max":0,"comment":"","issues":[]}},"compliance_summary":"总体合规性总结","fix_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","fix":""}]}`;
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────
@@ -252,12 +382,24 @@ export default async function handler(req, res) {
     } = req.body;
     if (!skill_content) return res.status(400).json({ error: '缺少 skill_content 参数' });
 
-    // 解析评估标准（支持文本文件和压缩包）
-    const [genericSkillText, specializedSkillText, volcanoSkillText] = await Promise.all([
-      resolveSkillContent(generic_eval_skill),
-      resolveSkillContent(specialized_eval_skill),
-      resolveSkillContent(volcano_eval_skill || volcano_rule_skill),
+    // 解析评估标准（支持文本文件和压缩包，同时提取维度表和脚本名）
+    const [genericResolved, specializedResolved, volcanoResolved] = await Promise.all([
+      resolveEvalSkillContent(generic_eval_skill),
+      resolveEvalSkillContent(specialized_eval_skill),
+      resolveEvalSkillContent(volcano_eval_skill || volcano_rule_skill),
     ]);
+    const genericSkillText     = genericResolved.text;
+    const genericDimensionMap  = genericResolved.dimensionMap;
+    const genericScriptName    = genericResolved.scriptName;
+    const genericBase64        = genericResolved.base64;
+    const specializedSkillText = specializedResolved.text;
+    const volcanoSkillText     = volcanoResolved.text;
+    const volcanoDimensionMap  = volcanoResolved.dimensionMap;
+    const volcanoScriptName    = volcanoResolved.scriptName;
+    const volcanoBase64        = volcanoResolved.base64;
+
+    const hasGenericScript = !!(genericBase64 && genericScriptName);
+    const hasVolcanoScript = !!(volcanoBase64 && volcanoScriptName);
 
     let rawCases = test_cases;
     if (typeof rawCases === 'string') {
@@ -293,28 +435,77 @@ export default async function handler(req, res) {
       });
     }
 
-    // ── Phase 2: Judge (通用评估) ─────────────────────────────────
-    // 优先使用上传的通用评估标准 skill；未上传时使用内置 prompt
+    // ── Phase 2: Judge (通用评估) — 优先 Python 脚本，失败回退 LLM ──────
     const resultsForJudge = executionResults.map((r, i) =>
       `--- 测试用例 ${i + 1}: ${r.name} ---\n输入: ${r.input}\n预期: ${r.expected_output}\n实际: ${r.actual_output}\n耗时: ${r.latency_ms}ms`
     ).join('\n');
 
     let evaluationResult = {};
-    try {
-      let judgeText;
-      if (genericSkillText) {
-        // 使用上传的通用评估标准：eval skill → system prompt，测试数据 → user prompt
-        const userMsg = buildJudgeUserMessage(skill_content, resultsForJudge, executionResults.length);
-        judgeText = await callLLMForEval(model_config || null, userMsg, 5000, genericSkillText);
-      } else {
-        // 内置规则（全部放在 user prompt 中）
-        const judgePrompt = buildJudgePrompt(skill_content, resultsForJudge, executionResults.length);
-        judgeText = await callLLMForEval(model_config || null, judgePrompt, 5000);
+    let scriptUsed = false;
+
+    // ① 尝试运行通用评估脚本（确定性评估）
+    if (hasGenericScript) {
+      const scriptResult = await runEvalScript(genericBase64, skill_content, skill_name, genericScriptName);
+      if (scriptResult) {
+        const passedN = executionResults.filter((r) => !r.execution_error).length;
+        const dimScoresFromScript = mapCategoryScores(scriptResult.category_scores || {}, genericDimensionMap);
+        evaluationResult = {
+          summary: {
+            overall_score: scriptResult.score ?? 0,
+            total_tests: executionResults.length,
+            passed_tests: passedN,
+            failed_tests: executionResults.length - passedN,
+            pass_rate: executionResults.length > 0 ? passedN / executionResults.length : 0,
+          },
+          dimensional_scores: dimScoresFromScript,
+          detailed_results: executionResults.map((r) => ({
+            ...r, passed: !r.execution_error, failure_reason: r.execution_error || '', scores: {},
+          })),
+          weakness_analysis: {
+            lowest_dimension: (() => {
+              let ln = '', lp = Infinity;
+              for (const [n, d] of Object.entries(dimScoresFromScript)) {
+                const pct = d.max > 0 ? d.score / d.max : 0;
+                if (pct < lp) { lp = pct; ln = n; }
+              }
+              return ln;
+            })(),
+            common_failures: (scriptResult.checks || []).filter((c) => !c.passed).slice(0, 5).map((c) => `[${c.id}] ${c.title}: ${c.evidence}`),
+            systematic_issues: [],
+          },
+          optimization_suggestions: (scriptResult.checks || []).filter((c) => !c.passed).map((c) => ({
+            dimension:       genericDimensionMap[c.category]?.name || c.category,
+            priority:        c.severity === 'hard' ? '高' : '低',
+            issue:           c.title,
+            suggestion:      `修复检查项 ${c.id}: ${c.evidence}`,
+            expected_impact: `可提升 ${c.available} 分`,
+          })),
+          script_checks:     scriptResult.checks || [],
+          script_score:      scriptResult.score,
+          script_assessment: scriptResult.generic_assessment || null,
+          evaluation_source: 'script',
+        };
+        scriptUsed = true;
+        console.log(`[Phase 2] 脚本评估成功，score: ${scriptResult.score}`);
       }
-      const jsonMatch = judgeText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) evaluationResult = JSON.parse(jsonMatch[0]);
-    } catch (e) {
-      return res.status(400).json({ error: `Judge 模型调用失败: ${e.message}` });
+    }
+
+    // ② 回退：LLM Judge
+    if (!scriptUsed) {
+      try {
+        let judgeText;
+        if (genericSkillText) {
+          const userMsg = buildJudgeUserMessage(skill_content, resultsForJudge, executionResults.length);
+          judgeText = await callLLMForEval(model_config || null, userMsg, 5000, genericSkillText);
+        } else {
+          const judgePrompt = buildJudgePrompt(skill_content, resultsForJudge, executionResults.length);
+          judgeText = await callLLMForEval(model_config || null, judgePrompt, 5000);
+        }
+        const jsonMatch = judgeText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) evaluationResult = JSON.parse(jsonMatch[0]);
+      } catch (e) {
+        return res.status(400).json({ error: `Judge 模型调用失败: ${e.message}` });
+      }
     }
 
     const mergedResults = (evaluationResult.detailed_results || []).map((j) => {
@@ -349,52 +540,94 @@ export default async function handler(req, res) {
       } catch (e) { console.error('[Phase 3 Error]', e.message); }
     }
 
-    // ── Phase 4: Volcano (火山合规) ───────────────────────────────
-    // 优先使用上传的火山评估标准 skill；兼容旧字段 volcano_rule_skill；未提供时使用内置 prompt
+    // ── Phase 4: Volcano (火山合规) — 优先 Python 脚本，失败回退 LLM ────
     let volcanoDimensionalScores = null, volcanoComplianceSummary = null, volcanoFixSuggestions = [], volcanoScore = null;
-    {
-      try {
-        let volcanoText;
-        if (volcanoSkillText) {
-          const userMsg = buildVolcanoUserMessage(skill_content, skill_name || '');
-          volcanoText = await callLLMForEval(model_config || null, userMsg, 3000, volcanoSkillText);
-        } else {
-          const volcanoPrompt = buildVolcanoPrompt(skill_content, skill_name || '');
-          volcanoText = await callLLMForEval(model_config || null, volcanoPrompt, 3000);
+    if (volcanoSkillText || hasVolcanoScript) {
+      let volcScriptUsed = false;
+
+      // ① 尝试运行火山评估脚本
+      if (hasVolcanoScript) {
+        const vsr = await runEvalScript(volcanoBase64, skill_content, skill_name, volcanoScriptName);
+        if (vsr) {
+          volcanoDimensionalScores = mapCategoryScores(vsr.category_scores || {}, volcanoDimensionMap);
+          volcanoComplianceSummary = vsr.volcano_assessment?.reason || '';
+          volcanoFixSuggestions = [...(vsr.hard_failures || []), ...(vsr.warnings || [])].map((c) => ({
+            dimension: volcanoDimensionMap[c.category]?.name || c.category,
+            priority:  c.severity === 'hard' ? '高' : '低',
+            issue:     c.title,
+            fix:       `修复检查项 ${c.id}: ${c.evidence}`,
+          }));
+          volcanoScore = vsr.score ?? 0;
+          volcScriptUsed = true;
+          console.log(`[Phase 4] 火山脚本评估成功，score: ${volcanoScore}`);
         }
-        const jsonMatch = volcanoText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const volcanoResult = JSON.parse(jsonMatch[0]);
-          volcanoDimensionalScores = volcanoResult.dimensional_scores || {};
-          volcanoComplianceSummary = volcanoResult.compliance_summary || '';
-          volcanoFixSuggestions = volcanoResult.fix_suggestions || [];
-          const scores = Object.values(volcanoDimensionalScores).map((d) => ((typeof d === 'object' ? d?.score : d) ?? 3) * 20);
-          volcanoScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-        }
-      } catch (e) { console.error('[Phase 4 Volcano Error]', e.message); }
+      }
+
+      // ② 回退：LLM
+      if (!volcScriptUsed) {
+        try {
+          let volcanoText;
+          if (volcanoSkillText) {
+            const userMsg = buildVolcanoUserMessage(skill_content, skill_name || '');
+            volcanoText = await callLLMForEval(model_config || null, userMsg, 3000, volcanoSkillText);
+          } else {
+            const volcanoPrompt = buildVolcanoPrompt(skill_content, skill_name || '');
+            volcanoText = await callLLMForEval(model_config || null, volcanoPrompt, 3000);
+          }
+          const jsonMatch = volcanoText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const volcanoResult = JSON.parse(jsonMatch[0]);
+            volcanoDimensionalScores = volcanoResult.dimensional_scores || {};
+            volcanoComplianceSummary = volcanoResult.compliance_summary || '';
+            volcanoFixSuggestions    = volcanoResult.fix_suggestions || [];
+            const volcEntries = Object.entries(volcanoDimensionalScores);
+            const volcHasMax  = volcEntries.some(([, d]) => typeof d === 'object' && d?.max != null && d.max > 0);
+            if (volcHasMax) {
+              let ve = 0, vt = 0;
+              for (const [, d] of volcEntries) {
+                ve += typeof d === 'object' ? (d?.score ?? 0) : (d ?? 0);
+                vt += typeof d === 'object' ? (d?.max   ?? 0) : 0;
+              }
+              volcanoScore = vt > 0 ? Math.round(ve / vt * 100) : 0;
+            } else {
+              const vr = volcEntries.map(([, d]) => typeof d === 'object' ? (d?.score ?? 0) : (d ?? 0));
+              const vm = vr.length > 0 ? Math.max(...vr) : 0;
+              volcanoScore = vr.length > 0 ? Math.round(vr.map(vm > 5 ? (s) => s : (s) => s * 20).reduce((a, b) => a + b, 0) / vr.length) : 0;
+            }
+          }
+        } catch (e) { console.error('[Phase 4 Volcano Error]', e.message); }
+      }
     }
 
-    // ── Score calculation ─────────────────────────────────────────
-    // 动态计算通用评分：对所有返回维度取均值，自动适配 1-5 分制 / 百分制
-    const dimScores = evaluationResult.dimensional_scores || {};
+    // ── Score calculation — 读取 skill 定义的维度满分，零硬编码 ─────
+    const dimScores  = evaluationResult.dimensional_scores || {};
+    const dimEntries = Object.entries(dimScores);
     let genericScore;
-    const dimValues = Object.values(dimScores);
-    if (dimValues.length > 0) {
-      const rawScores = dimValues.map((d) => (typeof d === 'object' ? (d?.score ?? 3) : (d ?? 3)));
-      const maxRaw = Math.max(...rawScores);
-      const normalize = maxRaw > 5 ? (s) => s : (s) => s * 20;
-      const total = rawScores.reduce((acc, s) => acc + normalize(s), 0);
-      genericScore = Math.round(total / rawScores.length);
+
+    if (scriptUsed && evaluationResult.script_score != null) {
+      // 脚本评估：直接使用脚本输出的总分
+      genericScore = evaluationResult.script_score;
+    } else if (dimEntries.length > 0) {
+      const hasMax = dimEntries.some(([, d]) => typeof d === 'object' && d?.max != null && d.max > 0);
+      if (hasMax) {
+        let totalEarned = 0, totalMax = 0;
+        for (const [, d] of dimEntries) {
+          totalEarned += typeof d === 'object' ? (d?.score ?? 0) : (d ?? 0);
+          totalMax    += typeof d === 'object' ? (d?.max   ?? 0) : 0;
+        }
+        genericScore = totalMax > 0 ? Math.round(totalEarned / totalMax * 100) : 0;
+      } else {
+        const rawScores = dimEntries.map(([, d]) => typeof d === 'object' ? (d?.score ?? 0) : (d ?? 0));
+        const maxRaw    = Math.max(...rawScores);
+        const normalize = maxRaw > 5 ? (s) => s : (s) => s * 20;
+        genericScore = Math.round(rawScores.map(normalize).reduce((a, b) => a + b, 0) / rawScores.length);
+      }
     } else {
-      const mapTo100 = (s) => (typeof s === 'number' ? s : (s?.score ?? 3)) * 20;
-      const qualityDim = (mapTo100(dimScores['稳定性']) + mapTo100(dimScores['准确性'])) / 2;
-      const funcDim = mapTo100(dimScores['有用性']);
-      const safetyDim = mapTo100(dimScores['安全性']);
-      genericScore = Math.round(qualityDim * 0.4 + funcDim * 0.35 + safetyDim * 0.25);
+      genericScore = 0;
     }
-    // 综合评分 = 通用×70% + 火山×30%（如果有火山评分）；否则 = 通用100%
+    // 综合评分 = 通用×80% + 火山×20%（如果有火山评分）；否则 = 通用100%
     const computedOverall = volcanoScore !== null
-      ? Math.round(genericScore * 0.7 + volcanoScore * 0.3)
+      ? Math.round(genericScore * 0.8 + volcanoScore * 0.2)
       : genericScore;
 
     const summary = evaluationResult.summary || {};
@@ -402,6 +635,9 @@ export default async function handler(req, res) {
     res.json({
       success: true,
       evaluation_mode: 'real',
+      evaluation_source: scriptUsed ? 'script' : 'llm',
+      script_checks: scriptUsed ? (evaluationResult.script_checks || []) : [],
+      script_assessment: scriptUsed ? (evaluationResult.script_assessment || null) : null,
       skill_category: skill_category || null,
       summary: {
         overall_score: computedOverall,

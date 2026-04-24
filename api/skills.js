@@ -9,10 +9,12 @@
 import { initializePool } from '../lib/db.js';
 import { Skills, SkillCategories, AuditLogs } from '../lib/db.js';
 
-// Initialize DB pool
-initializePool(process.env.DATABASE_URL);
-
 export default async function handler(req, res) {
+  // 延迟初始化：在请求时而非模块加载时建立 DB 连接，
+  // 避免 DATABASE_URL 未设置时导致函数启动崩溃。
+  try { initializePool(process.env.DATABASE_URL); } catch (e) {
+    console.error('[Skills] DB init failed:', e.message);
+  }
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');

@@ -435,6 +435,8 @@ export default async function handler(req, res) {
       volcano_eval_skill,
       // 兼容旧字段
       volcano_rule_skill,
+      // Judge 开关：前端「配置中心 → 评估标准 → 启用 Judge 模型评分」传入
+      use_judge,
     } = req.body;
     if (!skill_content) return res.status(400).json({ error: '缺少 skill_content 参数' });
 
@@ -496,8 +498,9 @@ export default async function handler(req, res) {
       `--- 测试用例 ${i + 1}: ${r.name} ---\n输入: ${r.input}\n预期: ${r.expected_output}\n实际: ${r.actual_output}\n耗时: ${r.latency_ms}ms`
     ).join('\n');
 
-    // 一期跳过 LLM Judge：评估标准均为静态规则，优先使用 Python 脚本确定性评估
-    const SKIP_JUDGE = true;
+    // use_judge 由前端「配置中心 → 评估标准 → 启用 Judge 模型评分」传入
+    // 默认 false（一期推荐关闭）；true 时在脚本失败后回退 LLM Judge
+    const SKIP_JUDGE = !use_judge;
 
     let evaluationResult = {};
     let scriptUsed  = false;
@@ -552,66 +555,97 @@ export default async function handler(req, res) {
       }
     }
 
-    // ② 脚本未运行或失败：SKIP_JUDGE=true，直接基于执行结果构建基础评估（不调用 LLM Judge）
+    // ② 脚本未运行或失败：根据 SKIP_JUDGE 决定是否调用 LLM Judge
     if (!scriptUsed) {
-      console.log('[Phase 2] 脚本未运行/失败，SKIP_JUDGE=true，构建基础评估结果（不调用 LLM Judge）');
-      const passedN  = executionResults.filter((r) => !r.execution_error).length;
-      const totalN   = executionResults.length;
-      const passRate = totalN > 0 ? passedN / totalN : 0;
-
-      let baseScores = {};
-      if (genericDimensions && genericDimensions.length > 0) {
-        genericDimensions.forEach((dim) => {
-          const est = Math.round(dim.max * passRate);
-          baseScores[dim.name] = {
-            score:   est,
-            max:     dim.max,
-            comment: `基于测试通过率（${Math.round(passRate * 100)}%）估算得分，请上传评估脚本以获取精确评分。`,
-          };
-        });
-      } else {
-        const s = passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2;
-        baseScores = {
-          '有用性': { score: s, max: 5, comment: `基于测试通过率（${Math.round(passRate * 100)}%）估算。` },
-          '稳定性': { score: s, max: 5, comment: `基于测试通过率（${Math.round(passRate * 100)}%）估算。` },
-          '准确性': { score: s, max: 5, comment: `基于测试通过率（${Math.round(passRate * 100)}%）估算。` },
-          '安全性': { score: 4, max: 5, comment: '无脚本评估，默认较高分；请上传评估脚本以精确检查。' },
-        };
+      let judgeResponseText;
+      if (!SKIP_JUDGE) {
+        // ── Judge 模式：调用 LLM ──
+        console.log(`[Phase 2] 调用 Judge 模型 (${model_config?.provider}/${model_config?.model})...`);
+        try {
+          if (genericSkillText) {
+            judgeResponseText = await callLLMForEval(
+              model_config || null,
+              buildJudgeUserMessage(skill_content, resultsForJudge, executionResults.length),
+              5000, genericSkillText
+            );
+          } else {
+            judgeResponseText = await callLLMForEval(
+              model_config || null,
+              buildJudgePrompt(skill_content, resultsForJudge, executionResults.length),
+              5000
+            );
+          }
+        } catch (e) {
+          console.error('[Phase 2] Judge 调用失败，降级到基础评估:', e.message);
+        }
+        if (judgeResponseText) {
+          try {
+            const jsonMatch = judgeResponseText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              evaluationResult = JSON.parse(jsonMatch[0]);
+              judgeSkipped = false;
+              console.log('[Phase 2] Judge 解析成功');
+            }
+          } catch (e) {
+            console.error('[Phase 2] Judge 响应解析失败，降级到基础评估');
+          }
+        }
       }
 
-      evaluationResult = {
-        summary: {
-          overall_score: Math.round(passRate * 100),
-          total_tests:   totalN,
-          passed_tests:  passedN,
-          failed_tests:  totalN - passedN,
-          pass_rate:     passRate,
-        },
-        dimensional_scores: baseScores,
-        detailed_results: executionResults.map((r, i) => ({
-          id:              r.id    || `${i + 1}`,
-          name:            r.name  || `测试用例 ${i + 1}`,
-          test_type:       r.test_type || '正常场景',
-          priority:        r.priority  || '中',
-          passed:          !r.execution_error,
-          actual_output:   r.actual_output   || '',
-          expected_output: r.expected_output || '',
-          input:           r.input           || '',
-          failure_reason:  r.execution_error || '',
-          latency_ms:      r.latency_ms      || 0,
-          scores:          {},
-        })),
-        weakness_analysis: {
-          lowest_dimension:  '',
-          common_failures:   executionResults.filter((r) => r.execution_error).map((r) => r.execution_error).slice(0, 3),
-          systematic_issues: [],
-        },
-        optimization_suggestions: [],
-        judge_skipped:     true,
-        judge_skip_reason: '一期跳过 LLM Judge（SKIP_JUDGE=true），请上传含评估脚本的 ZIP 包以获取精确分析。',
-        evaluation_source: 'execution_only',
-      };
-      judgeSkipped = true;
+      // ── SKIP_JUDGE 或 Judge 失败：基于执行结果构建基础评估 ──
+      if (SKIP_JUDGE || !judgeResponseText || !evaluationResult.dimensional_scores) {
+        console.log('[Phase 2] 构建基础评估结果（无脚本/无 Judge）');
+        const passedN  = executionResults.filter((r) => !r.execution_error).length;
+        const totalN   = executionResults.length;
+        const passRate = totalN > 0 ? passedN / totalN : 0;
+
+        let baseScores = {};
+        if (genericDimensions && genericDimensions.length > 0) {
+          genericDimensions.forEach((dim) => {
+            baseScores[dim.name] = {
+              score:   Math.round(dim.max * passRate),
+              max:     dim.max,
+              comment: `基于测试通过率（${Math.round(passRate * 100)}%）估算得分，请上传评估脚本以获取精确评分。`,
+            };
+          });
+        } else {
+          const s = passRate >= 0.8 ? 4 : passRate >= 0.6 ? 3 : 2;
+          baseScores = {
+            '有用性': { score: s, max: 5, comment: `基于测试通过率（${Math.round(passRate * 100)}%）估算。` },
+            '稳定性': { score: s, max: 5, comment: `基于测试通过率（${Math.round(passRate * 100)}%）估算。` },
+            '准确性': { score: s, max: 5, comment: `基于测试通过率（${Math.round(passRate * 100)}%）估算。` },
+            '安全性': { score: 4, max: 5, comment: '无脚本评估，默认较高分；请上传评估脚本以精确检查。' },
+          };
+        }
+        evaluationResult = {
+          summary: {
+            overall_score: Math.round(passRate * 100),
+            total_tests: totalN, passed_tests: passedN,
+            failed_tests: totalN - passedN, pass_rate: passRate,
+          },
+          dimensional_scores: baseScores,
+          detailed_results: executionResults.map((r, i) => ({
+            id: r.id || `${i + 1}`, name: r.name || `测试用例 ${i + 1}`,
+            test_type: r.test_type || '正常场景', priority: r.priority || '中',
+            passed: !r.execution_error,
+            actual_output: r.actual_output || '', expected_output: r.expected_output || '',
+            input: r.input || '', failure_reason: r.execution_error || '',
+            latency_ms: r.latency_ms || 0, scores: {},
+          })),
+          weakness_analysis: {
+            lowest_dimension: '',
+            common_failures: executionResults.filter((r) => r.execution_error).map((r) => r.execution_error).slice(0, 3),
+            systematic_issues: [],
+          },
+          optimization_suggestions: [],
+          judge_skipped: true,
+          judge_skip_reason: use_judge
+            ? 'Judge 模型调用失败，已降级为基于执行结果的基础评估。'
+            : '未启用 Judge 模型（配置中心 → 评估标准 → Judge 模型评分 已关闭），请上传含评估脚本的 ZIP 包以获取精确评分。',
+          evaluation_source: 'execution_only',
+        };
+        judgeSkipped = true;
+      }
     }
 
     const mergedResults = (evaluationResult.detailed_results || []).map((j) => {

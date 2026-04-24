@@ -416,6 +416,14 @@ export const useStore = create(
       setEvalModelId: (id) => set({ evalModelId: id }),
 
       /**
+       * judgeEnabled — 是否启用 LLM Judge 模型评分（配置中心 → 评估标准 中控制）
+       * false（默认）：一期跳过 Judge，使用 Python 脚本或执行结果直接评估
+       * true：启用 Judge 模型，在脚本失败时回退 LLM Judge 评分
+       */
+      judgeEnabled: false,
+      setJudgeEnabled: (enabled) => set({ judgeEnabled: enabled }),
+
+      /**
        * evalStandards — 用户上传的评估标准 Skill 文件
        * 文本文件：{ name, content, isCompressed: false, size, uploadedAt }
        * 压缩包：  { name, content: null, base64, isCompressed: true, size, uploadedAt }
@@ -453,6 +461,7 @@ export const useStore = create(
         skillEvalState: state.skillEvalState,
         evalStandards:  state.evalStandards,
         evalModelId:    state.evalModelId,
+        judgeEnabled:   state.judgeEnabled,
       }),
     }
   )

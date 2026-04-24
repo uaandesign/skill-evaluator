@@ -2001,6 +2001,8 @@ app.post('/api/evaluate-skill', async (req, res) => {
       generic_eval_skill, specialized_eval_skill, volcano_eval_skill,
       // 旧字段兼容
       volcano_rule_skill,
+      // Judge 开关：前端「配置中心 → 评估标准 → 启用 Judge 模型评分」传入
+      use_judge,
     } = req.body;
 
     console.log(`[evaluate-skill] 收到请求 — provider: ${model_config?.provider}, model: ${model_config?.model}, hasContent: ${!!skill_content}, casesType: ${typeof test_cases}, category: ${skill_category || 'none'}`);
@@ -2217,9 +2219,10 @@ ${resultsForJudge}
 3. passed字段必须严格按照上述通过/失败判定标准判断
 4. optimization_suggestions的priority必须按照上述阈值确定`;
 
-    // ── Phase 2: 优先运行通用评估 Python 脚本，失败时构建基础结果（一期不调用 LLM Judge）──
-    // SKIP_JUDGE = true：一期评估标准均为静态规则，无需 LLM Judge，节省 token 并加快速度
-    const SKIP_JUDGE = true;
+    // ── Phase 2: 优先运行通用评估 Python 脚本，失败时按开关决定是否调用 LLM Judge ──
+    // use_judge 由前端「配置中心 → 评估标准 → 启用 Judge 模型评分」传入
+    // 默认 false（一期推荐关闭）；true 时在脚本失败后回退 LLM Judge
+    const SKIP_JUDGE = !use_judge;
 
     let evaluationResult;
     let judgeSkipped = false;
@@ -2295,9 +2298,72 @@ ${resultsForJudge}
       }
     }
 
-    // ② 脚本未运行或失败时：一期直接跳过 Judge，基于执行结果构建基础评估报告
+    // ② 脚本未运行或失败时：根据 SKIP_JUDGE 决定是否调用 LLM Judge
     if (!scriptUsed) {
-      console.log('[evaluate-skill] Phase 2：脚本未运行/失败，SKIP_JUDGE=true，直接构建基础评估结果（不调用 LLM Judge）');
+    if (!SKIP_JUDGE) {
+      // ── Judge 模式：调用 LLM Judge 评分 ──────────────────────────────
+      console.log(`[evaluate-skill] Phase 2 开始调用 Judge 模型 (${model_config?.provider}/${model_config?.model})，使用${genericSkillText ? '自定义评估标准' : '内置规则'}...`);
+      const judgeUserPrompt = genericSkillText
+        ? `请严格遵照系统提示（你的评估标准）中定义的评估维度和评分规则，对以下技能进行综合评分。
+
+⚠️ 关键约束（必须严格遵守）：
+1. dimensional_scores 中的维度名称和数量必须与系统提示中定义的完全一致，一个不多，一个不少
+2. 不得自行添加、删减或重命名任何维度
+3. 评分标准、分值区间以系统提示为准
+
+## 技能定义
+\`\`\`
+${skill_content}
+\`\`\`
+
+## 测试执行结果（共 ${executionResults.length} 条）
+${resultsForJudge}
+
+请严格返回 JSON（不要输出任何其他内容）。
+- dimensional_scores 的每个 key 必须是系统提示中定义的维度名，有多少维度就写多少个 key
+- 每个维度必须包含 score（实际得分）和 max（该维度在系统提示评分规则中的满分）
+{"summary":{"total_tests":${executionResults.length},"passed_tests":0,"failed_tests":0,"pass_rate":0.0},"dimensional_scores":{"<维度1名>":{"score":12,"max":15,"comment":"评分理由"}},"detailed_results":[{"id":"1","name":"","passed":true,"actual_output":"","failure_reason":"","latency_ms":0,"scores":{}}],"weakness_analysis":{"lowest_dimension":"","common_failures":[],"systematic_issues":[]},"optimization_suggestions":[{"dimension":"","priority":"高/中/低","issue":"","suggestion":"","expected_impact":""}]}`
+        : judgePrompt;
+      const judgeSystemPrompt = genericSkillText || null;
+      let judgeResponseText;
+      try {
+        const judgeStartTime = Date.now();
+        judgeResponseText = await callLLMForEval(model_config || null, judgeUserPrompt, 5000, judgeSystemPrompt);
+        console.log(`[evaluate-skill] Judge 调用成功，耗时 ${Date.now() - judgeStartTime}ms`);
+      } catch (llmError) {
+        console.error(`[evaluate-skill] Judge 模型调用失败:`, llmError.message);
+        // Fallback to Claude
+        if (model_config?.provider !== 'anthropic') {
+          try {
+            const claudeApiKey = process.env.ANTHROPIC_API_KEY;
+            if (claudeApiKey) {
+              judgeResponseText = await callLLMForEval(
+                { provider: 'anthropic', apiKey: claudeApiKey, model: 'claude-sonnet-4-6' },
+                judgeUserPrompt, 5000, judgeSystemPrompt
+              );
+              console.log('[evaluate-skill] Claude 备用 Judge 调用成功');
+            }
+          } catch (fbErr) {
+            console.error('[evaluate-skill] Claude 备用 Judge 也失败:', fbErr.message);
+          }
+        }
+      }
+      if (judgeResponseText) {
+        try {
+          const jsonMatch = judgeResponseText.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) throw new Error('响应中未找到 JSON');
+          evaluationResult = JSON.parse(jsonMatch[0]);
+          judgeSkipped = false;
+          console.log('[evaluate-skill] Judge JSON 解析成功');
+        } catch (parseErr) {
+          console.error('[evaluate-skill] Judge 响应解析失败，降级到基础评估');
+        }
+      }
+    }
+
+    // ── 无 Judge（SKIP_JUDGE=true 或 Judge 失败）：基于执行结果构建基础评估报告 ──
+    if (SKIP_JUDGE || !judgeResponseText || !evaluationResult.dimensional_scores) {
+      console.log('[evaluate-skill] Phase 2：脚本未运行/失败，SKIP_JUDGE 或 Judge 失败，直接构建基础评估结果');
 
       const passedCount0 = executionResults.filter((r) => !r.execution_error).length;
       const totalCount0  = executionResults.length;
@@ -2355,11 +2421,14 @@ ${resultsForJudge}
         },
         optimization_suggestions: [],
         judge_skipped:     true,
-        judge_skip_reason: '一期跳过 LLM Judge（SKIP_JUDGE=true），请上传含评估脚本的 ZIP 包以获取精确分析。',
+        judge_skip_reason: use_judge
+          ? 'Judge 模型调用失败，已降级为基于执行结果的基础评估。'
+          : '未启用 Judge 模型（配置中心 → 评估标准 → Judge 模型评分 已关闭），请上传含评估脚本的 ZIP 包以获取精确评分。',
         evaluation_source: 'execution_only',
       };
       judgeSkipped = true;
       console.log('[evaluate-skill] Phase 2 基础评估完成（无脚本/无Judge），pass_rate:', passRate0);
+    } // end if (SKIP_JUDGE || ...)
     } // end if (!scriptUsed)
 
     // ── Merge Phase-1 execution data into Phase-2 results ─────────────────

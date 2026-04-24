@@ -109,6 +109,7 @@ export default function SkillEvaluatorModule() {
     skillEvalState, setSkillEvalState,
     evalStandards, setEvalStandard, clearEvalStandard,
     evalModelId, setActiveTab,
+    judgeEnabled,
   } = useStore();
 
   // All UI state lives in Zustand so it survives tab switches
@@ -246,6 +247,8 @@ export default function SkillEvaluatorModule() {
           generic_eval_skill:     genericStd     || null,
           specialized_eval_skill: specializedStd || null,
           volcano_eval_skill:     volcanoStd     || null,
+          // Judge 模型开关：配置中心「启用 Judge 模型评分」控制
+          use_judge: judgeEnabled === true,
         }),
       });
       const data = await res.json();
@@ -315,6 +318,16 @@ export default function SkillEvaluatorModule() {
           const data = await res.json();
           if (data.optimized_content) {
             saveSkillVersion(selectedSkillId, data.optimized_content, data.new_version || '优化版');
+
+            // 同步 SKILL.md frontmatter 中的 name 字段到技能库卡片
+            const fmMatch = data.optimized_content.match(/^---[\s\S]*?^name:\s*(.+?)$/m);
+            if (fmMatch) {
+              const newName = fmMatch[1].trim().replace(/^["']|["']$/g, '');
+              if (newName && newName !== selectedSkill?.name) {
+                updateSkill(selectedSkillId, { name: newName });
+              }
+            }
+
             message.success(`优化成功，已生成新版本 ${data.new_version || '优化版'}`);
           } else {
             message.error(data.error || '优化失败，请重试');
@@ -618,11 +631,11 @@ export default function SkillEvaluatorModule() {
 
     return (
       <div>
-        {/* Judge 跳过警告 */}
-        {results.judge_skipped && (
+        {/* Judge 跳过警告：仅当 Judge 已开启但调用失败时展示；主动关闭时不展示 */}
+        {results.judge_skipped && judgeEnabled && (
           <Alert
             type="warning"
-            message="⚠️ Judge 模型不可用"
+            message="⚠️ Judge 模型调用失败"
             description={`Judge 模型连接失败，本次评估仅基于执行结果生成。评分为估计值，不代表完整评估。原因：${results.judge_skip_reason || '未知'}`}
             showIcon={false}
             style={{ marginBottom: 16, padding: '12px 14px', fontSize: 12 }}
@@ -637,9 +650,9 @@ export default function SkillEvaluatorModule() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {results.evaluation_mode === 'real' && (
               <>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: results.judge_skipped ? '#6b7280' : '#111827' }} />
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#111827' }} />
                 <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>
-                  {results.judge_skipped ? '部分执行评估' : '真实执行评估'} · {selectedModel?.displayName || '配置模型'}
+                  {results.evaluation_source === 'script' ? '脚本评估' : '执行评估'} · {selectedModel?.displayName || '配置模型'}
                 </span>
               </>
             )}

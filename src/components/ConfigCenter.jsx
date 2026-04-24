@@ -190,6 +190,7 @@ const ConfigCenter = () => {
     capabilities, updateCapability,
     evalStandards, setEvalStandard, clearEvalStandard,
     evalModelId, setEvalModelId,
+    judgeEnabled, setJudgeEnabled,
   } = useStore();
 
   // Local form state for adding models
@@ -667,6 +668,37 @@ const ConfigCenter = () => {
           {selectedEvalModel && (
             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
               {selectedEvalModel.provider} · {selectedEvalModel.model}
+            </div>
+          )}
+        </div>
+
+        {/* ── Judge 模型开关 ── */}
+        <div style={{
+          background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+          padding: '16px 20px', marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#111827', marginBottom: 4 }}>
+                启用 Judge 模型评分
+              </div>
+              <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.6 }}>
+                开启后，当 Python 评估脚本不可用时，将调用上方配置的大模型作为 Judge 进行评分。<br />
+                一期建议关闭（评估标准为静态规则，脚本评估已足够准确）。
+              </div>
+            </div>
+            <Switch
+              checked={judgeEnabled}
+              onChange={setJudgeEnabled}
+              style={{ flexShrink: 0, marginLeft: 16 }}
+            />
+          </div>
+          {judgeEnabled && (
+            <div style={{
+              marginTop: 10, padding: '8px 12px', background: '#f9fafb',
+              border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, color: '#374151',
+            }}>
+              ⚠️ Judge 模型已开启。仅在评估脚本失败时触发，会额外消耗模型 token。请确保上方已配置评估专用模型。
             </div>
           )}
         </div>

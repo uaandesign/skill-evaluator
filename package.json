@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite",
-    "dev:server": "node server.js",
+    "dev:server": "node dev-server.js",
     "build": "vite build",
     "preview": "vite preview",
     "init-db": "DATABASE_URL=$DATABASE_URL node scripts/init-db.js",

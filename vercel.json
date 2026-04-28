@@ -1,0 +1,24 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "@vercel/node@3",
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/:path*",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, x-admin-token" }
+      ]
+    }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}

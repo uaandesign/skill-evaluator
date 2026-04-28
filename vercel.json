@@ -2,53 +2,19 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "framework": "vite",
-  "buildCommand": "vite build",
-  "outputDirectory": "dist",
-  "installCommand": "npm install",
   "functions": {
-    "api/chat.js": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/run-skill.js": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/evaluate-skill.js": {
-      "maxDuration": 300,
-      "memory": 1024
-    },
-    "api/skills.js": {
-      "maxDuration": 30,
-      "memory": 512
-    },
-    "api/init.js": {
-      "maxDuration": 30,
-      "memory": 512
-    }
+    "api/chat.js": { "maxDuration": 60 },
+    "api/run-skill.js": { "maxDuration": 60 },
+    "api/evaluate-skill.js": { "maxDuration": 300 },
+    "api/skills.js": { "maxDuration": 30 },
+    "api/init.js": { "maxDuration": 30 }
   },
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
         { "key": "X-Frame-Options", "value": "ALLOWALL" },
         { "key": "Content-Security-Policy", "value": "frame-ancestors *" }
-      ]
-    },
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store, max-age=0" }
-      ]
-    },
-    {
-      "source": "/assets/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
     }
   ]

@@ -2,6 +2,7 @@
   "name": "skill-evaluator",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite",
@@ -14,7 +15,7 @@
     "vercel:health": "curl -s https://$VERCEL_URL/api/health | jq"
   },
   "engines": {
-    "node": "20.x"
+    "node": "18.x"
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",

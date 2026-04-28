@@ -3,7 +3,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/**/*.js": {
-      "memory": 1024,
+      "runtime": "@vercel/node@3.0.0",
       "maxDuration": 60
     }
   },

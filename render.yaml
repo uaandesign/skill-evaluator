@@ -1,0 +1,25 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+# Render 会自动读取此文件配置项目，省去网页上手动填写。
+# 推送到 GitHub 后，Render 会按此文件自动设置 Web Service。
+
+services:
+  - type: web
+    name: skill-evaluator
+    runtime: node
+    region: singapore   # 离中国最近的免费区域，比 Oregon/Frankfurt 延迟低
+    plan: free          # 免费 750 小时/月（无活动 15 分钟后自动休眠）
+    nodeVersion: 20     # 锁死 Node 20 LTS，避免 Vercel 那种被自动升级到 24 的坑
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz   # Render 用此路径判断服务是否健康
+    autoDeploy: true            # main 分支有新 commit 时自动重部署
+    envVars:
+      # 这些变量需要在 Render 控制台 Dashboard 里手动填值（密钥不能存进 yaml）
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: NODE_ENV
+        value: production

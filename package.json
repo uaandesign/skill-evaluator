@@ -15,7 +15,7 @@
     "vercel:health": "curl -s https://$VERCEL_URL/api/health | jq"
   },
   "engines": {
-    "node": "18.x"
+    "node": "20.x"
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",

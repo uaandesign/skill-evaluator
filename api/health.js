@@ -14,6 +14,7 @@ export default async function handler(req, res) {
   const result = {
     status: 'ok',
     timestamp: new Date().toISOString(),
+    deploy_marker: 'v2-502-fix',
     runtime: {
       node: process.version,
       region: process.env.VERCEL_REGION || 'unknown',

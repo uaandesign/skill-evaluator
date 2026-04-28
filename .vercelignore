@@ -1,0 +1,17 @@
+# 仅排除部署时不需要的文件，加快上传与构建
+.DS_Store
+.git
+.env
+.env.local
+.env.*.local
+node_modules
+dist
+*.log
+.idea
+.vscode
+
+# 项目内文档不影响运行，但可保留以便调试
+# DEPLOYMENT_GUIDE.md
+# DEPLOYMENT_CHECKLIST.md
+# 也排除本地开发服务器（生产用 api/* serverless functions）
+dev-server.js

@@ -21,6 +21,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
+import { runBootstrap } from './lib/bootstrap.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -133,6 +134,16 @@ app.get('/healthz', (req, res) => {
 
 // ─── 启动 ────────────────────────────────────────────────────────────────
 async function start() {
+  // 1. Bootstrap：跑 migration + seed 内置参考 skill
+  //    DATABASE_URL 没配置时会内部跳过，不阻塞启动
+  try {
+    await runBootstrap();
+  } catch (err) {
+    console.error('[server] bootstrap 失败:', err.message);
+    console.error('[server] 服务器将仍然启动，但数据库相关功能可能不可用');
+  }
+
+  // 2. 挂载 API 路由 + 静态资源
   await mountApiRoutes();
   setupStaticAndFallback();
 

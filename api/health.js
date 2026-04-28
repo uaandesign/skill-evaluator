@@ -1,45 +1,30 @@
 /**
  * GET /api/health
- * 健康检查端点 —— 用于快速排查 Vercel 部署问题：
- *   - 返回 200 + JSON：函数运行环境正常
- *   - 502/超时：Vercel 函数本身异常（runtime/内存/超时）
- *   - db 字段为 false：DATABASE_URL 未配置或 Neon 不可达
+ * 极简健康检查端点 —— 无任何外部依赖。
+ * 用于排除 npm 包（如 @neondatabase/serverless）加载失败导致的 502。
  *
- * 不依赖任何业务逻辑，故意保持轻量，便于诊断 502 问题。
+ * 如果这个端点能正常返回 200，说明：
+ *   - Vercel 函数运行环境正常
+ *   - 路由层正常
+ *   - 502 一定是其他文件或依赖的问题
+ *
+ * 如果这个端点还 502，说明问题在 Vercel 平台层面（边缘缓存、域名路由等）。
  */
-export default async function handler(req, res) {
+export default function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Content-Type', 'application/json');
 
-  const result = {
+  return res.status(200).json({
     status: 'ok',
+    deploy_marker: 'v3-minimal-health',
     timestamp: new Date().toISOString(),
-    deploy_marker: 'v2-502-fix',
-    runtime: {
-      node: process.version,
-      region: process.env.VERCEL_REGION || 'unknown',
-      env: process.env.VERCEL_ENV || 'unknown',
-    },
+    runtime_node: process.version,
+    region: process.env.VERCEL_REGION || 'unknown',
     env_check: {
       DATABASE_URL: !!process.env.DATABASE_URL,
       ADMIN_TOKEN: !!process.env.ADMIN_TOKEN,
-      ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
     },
-    db: false,
-  };
-
-  // 可选：测试数据库连通性
-  if (process.env.DATABASE_URL) {
-    try {
-      const { neon } = await import('@neondatabase/serverless');
-      const sql = neon(process.env.DATABASE_URL);
-      const rows = await sql`SELECT 1 AS ok`;
-      result.db = rows[0]?.ok === 1;
-    } catch (e) {
-      result.db = false;
-      result.db_error = e.message;
-    }
-  }
-
-  return res.status(200).json(result);
+  });
 }

@@ -7,6 +7,7 @@ import SkillLibrary from './components/SkillLibrary';
 import SkillEditor from './components/SkillEditor';
 import QualityEval from './components/QualityEval';
 import SkillEvaluatorModule from './components/SkillEvaluatorModule';
+import HomePage from './components/HomePage';
 
 const { Header, Sider, Content } = Layout;
 
@@ -15,21 +16,23 @@ const App = () => {
   const [collapsed, setCollapsed] = useState(false);
 
   const menuItems = [
+    { key: 'home',            label: '首页' },
     { key: 'skill-evaluator', label: '技能评估' },
-    { key: 'skill-editor', label: '技能测试' },
-    { key: 'skill-library', label: '技能库' },
-    { key: 'config-center', label: '配置中心' },
+    { key: 'skill-editor',    label: '技能编辑' },
+    { key: 'skill-library',   label: '技能库' },
+    { key: 'config-center',   label: '配置中心' },
   ];
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'compare-test': return <CompareTest />;
-      case 'config-center': return <ConfigCenter />;
-      case 'skill-library': return <SkillLibrary />;
-      case 'skill-editor': return <SkillEditor />;
-      case 'quality-eval': return <QualityEval />;
+      case 'home':            return <HomePage />;
+      case 'compare-test':    return <CompareTest />;
+      case 'config-center':   return <ConfigCenter />;
+      case 'skill-library':   return <SkillLibrary />;
+      case 'skill-editor':    return <SkillEditor />;
+      case 'quality-eval':    return <QualityEval />;
       case 'skill-evaluator': return <SkillEvaluatorModule />;
-      default: return <SkillEvaluatorModule />;
+      default:                return <HomePage />;  // 默认进首页
     }
   };
 
@@ -38,7 +41,8 @@ const App = () => {
     return item ? item.label : '';
   };
 
-  const isFullWidth = activeTab === 'compare-test' || activeTab === 'skill-evaluator' || activeTab === 'skill-editor';
+  const isFullWidth = activeTab === 'compare-test' || activeTab === 'skill-evaluator'
+    || activeTab === 'skill-editor' || activeTab === 'home';
 
   return (
     <ConfigProvider

@@ -215,7 +215,7 @@ export const useStore = create(
       /* ============================================
          UI State
          ============================================ */
-      activeTab: 'skill-evaluator',
+      activeTab: 'home',                                  // 默认落到首页
       setActiveTab: (tab) => set({ activeTab: tab }),
       isLoading: false,
       setLoading: (loading) => set({ isLoading: loading }),

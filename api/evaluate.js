@@ -103,11 +103,45 @@ export default async function handler(req, res) {
     const skillNameForSave = req.body?.skill_name || null;
     const userId = req.headers['x-user-id'] || 'anonymous';
 
+    // ─── 解析前端 inline 标准（旧 UI 上传到 localStorage 的 zip）──
+    // 格式 1: { standard_key, base64 }（zip 包，自动解压提取）
+    // 格式 2: { standard_key, skill_md_content, script_filename, script_content }（已解析）
+    const inlineStandardsRaw = Array.isArray(req.body?.inline_standards)
+      ? req.body.inline_standards
+      : [];
+    let inlineStandards = [];
+    for (const item of inlineStandardsRaw) {
+      try {
+        if (item.base64) {
+          const buf = Buffer.from(item.base64, 'base64');
+          const parsed = parseStandardZip(buf, item.standard_key);
+          inlineStandards.push(parsed);
+        } else if (item.skill_md_content && item.script_content) {
+          inlineStandards.push({
+            standard_key:     item.standard_key || 'inline',
+            display_name:     item.display_name || item.standard_key || 'Inline Standard',
+            rubric_version:   item.rubric_version || null,
+            total_score:      item.total_score || 100,
+            skill_md_content: item.skill_md_content,
+            script_filename:  item.script_filename || 'evaluate.py',
+            script_content:   item.script_content,
+            references_md:    item.references_md || null,
+          });
+        } else {
+          console.warn('[evaluate] 跳过格式不完整的 inline standard:', item.standard_key);
+        }
+      } catch (err) {
+        console.warn('[evaluate] inline standard 解析失败:', err.message);
+        // 继续处理其他标准，单个失败不阻塞整体评估
+      }
+    }
+
     // ─── 评估 ──────────────────────────────────────────────────────
     let results;
     try {
       results = await evaluateSkillAgainstAllStandards(zipBuffer, {
         standardKeys: standardsFilter,
+        inlineStandards: inlineStandards.length > 0 ? inlineStandards : undefined,
       });
     } catch (err) {
       return res.status(500).json({ error: '评估失败', details: err.message });
@@ -172,6 +206,70 @@ function wrapSkillContentAsZip(skill) {
 function isValidUUID(s) {
   if (!s || typeof s !== 'string') return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+/**
+ * 从 zip Buffer 解析评估标准件
+ * 提取 SKILL.md + scripts/*.py + references/evaluation-standard.md
+ * 返回 evaluator.js 需要的标准件格式
+ */
+function parseStandardZip(zipBuffer, fallbackKey) {
+  const zip = new AdmZip(zipBuffer);
+  const entries = zip
+    .getEntries()
+    .filter((e) => !e.entryName.includes('__MACOSX') && !e.entryName.includes('.DS_Store'));
+
+  if (entries.length === 0) throw new Error('zip 包为空');
+
+  // 找 SKILL.md
+  const skillEntry = entries.find(
+    (e) => !e.isDirectory && (e.entryName.endsWith('/SKILL.md') || e.entryName === 'SKILL.md')
+  );
+  if (!skillEntry) throw new Error('zip 包中找不到 SKILL.md');
+  const skillRoot = skillEntry.entryName.replace(/SKILL\.md$/, '');
+  const skillMdContent = skillEntry.getData().toString('utf-8');
+
+  // 找 scripts/*.py
+  const scriptEntry = entries.find(
+    (e) =>
+      !e.isDirectory &&
+      e.entryName.startsWith(skillRoot + 'scripts/') &&
+      e.entryName.endsWith('.py')
+  );
+  if (!scriptEntry) throw new Error('zip 包中找不到 scripts/*.py');
+  const scriptFilename = scriptEntry.entryName.replace(/^.*\//, '');
+  const scriptContent = scriptEntry.getData().toString('utf-8');
+
+  // 可选 references/evaluation-standard.md
+  const refsEntry = entries.find(
+    (e) =>
+      !e.isDirectory &&
+      e.entryName.startsWith(skillRoot + 'references/') &&
+      e.entryName.endsWith('evaluation-standard.md')
+  );
+  const referencesMd = refsEntry ? refsEntry.getData().toString('utf-8') : null;
+
+  // 从 SKILL.md frontmatter 抽 name 作 standard_key
+  const fmMatch = skillMdContent.match(/^---\s*\n([\s\S]*?)\n---/);
+  let standardKey = fallbackKey || 'inline';
+  if (fmMatch) {
+    const nameMatch = fmMatch[1].match(/^name:\s*(.+?)$/m);
+    if (nameMatch) standardKey = nameMatch[1].trim().replace(/^["']|["']$/g, '');
+  }
+
+  // rubric_version 抽取
+  const rvMatch = skillMdContent.match(/标准版本[:：]\s*`?([^`\n]+?)`?\s*$/m);
+
+  return {
+    standard_key: standardKey,
+    display_name: standardKey,
+    rubric_version: rvMatch ? rvMatch[1].trim() : null,
+    total_score: 100,
+    skill_md_content: skillMdContent,
+    script_filename: scriptFilename,
+    script_content: scriptContent,
+    references_md: referencesMd,
+  };
 }
 
 async function saveEvaluationResult({ skillId, standardId, fingerprint, report, error, duration }) {

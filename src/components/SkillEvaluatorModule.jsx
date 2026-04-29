@@ -109,6 +109,29 @@ function transformPyEvalResults(evalData, selectedModel) {
   };
 }
 
+/**
+ * 把 store 里的 evalStandards 转成后端 /api/evaluate 接受的 inline_standards 格式
+ * evalStandards.{generic|specialized|volcano} 形如：
+ *   { name, base64, isCompressed: true }    // zip
+ *   { name, content, isCompressed: false }  // .md/.txt
+ * 后端只支持 zip（需要 SKILL.md + 脚本），文本类目前忽略并提示
+ */
+function buildInlineStandards(evalStandards) {
+  if (!evalStandards) return [];
+  const result = [];
+  for (const [role, std] of Object.entries(evalStandards)) {
+    if (!std) continue;
+    if (std.isCompressed && std.base64) {
+      result.push({
+        standard_key: `${role}-uploaded`,
+        base64: std.base64,
+      });
+    }
+    // 非 zip（纯文本）暂不支持，跳过（用户已上传 zip 时正常工作）
+  }
+  return result;
+}
+
 // 把所有 standard 的 failed checks 汇总成 weakness_analysis
 function collectFailedChecks(successResults) {
   const failed = [];
@@ -329,6 +352,9 @@ export default function SkillEvaluatorModule() {
     try {
       // ─── MVP 一期：纯 Python 静态评估（/api/evaluate）─────────────────
       // 直接传 skill_content（前端 skill 大部分是本地 ID 不是 UUID，无法走 DB 查询）
+      // 同时把 localStorage 里上传的评估标准（旧 UI）作为 inline_standards 传过去
+      const inlineStandards = buildInlineStandards(evalStandards);
+
       const evalRes = await fetch('/api/evaluate?save=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -339,6 +365,8 @@ export default function SkillEvaluatorModule() {
           // 否则后端自动置 null，不影响评估流程
           skill_id:      selectedSkillId,
           skill_version: versions[selectedVersionIndex]?.description || `v${selectedVersionIndex + 1}`,
+          // 用户上传的标准（zip → base64）。空数组时后端回退到 DB 内置标准
+          inline_standards: inlineStandards,
         }),
       });
 

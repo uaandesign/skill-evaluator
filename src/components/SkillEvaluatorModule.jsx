@@ -328,17 +328,16 @@ export default function SkillEvaluatorModule() {
 
     try {
       // ─── MVP 一期：纯 Python 静态评估（/api/evaluate）─────────────────
-      // 把当前 skill 内容打包成 zip 直接评估，不入库（saved_id 由前端按需保存）
-      const skillName = (selectedSkill?.name || 'skill').replace(/[^\w-]/g, '-');
-      const skillPath = `${skillName}/SKILL.md`;
-      // 简单内联打包：浏览器原生没 zip API，发 JSON 让后端自己包
+      // 直接传 skill_content（前端 skill 大部分是本地 ID 不是 UUID，无法走 DB 查询）
       const evalRes = await fetch('/api/evaluate?save=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          // 通过 skill_id 让后端读 skill_content 并自动包成 zip
-          skill_id: selectedSkillId,
-          // 版本信息附带（仅存档用）
+          skill_content: skillContent,
+          skill_name:    selectedSkill?.name || 'skill',
+          // 仅当 selectedSkillId 是合法 UUID 时后端才会把它入到 evaluation_results.skill_id
+          // 否则后端自动置 null，不影响评估流程
+          skill_id:      selectedSkillId,
           skill_version: versions[selectedVersionIndex]?.description || `v${selectedVersionIndex + 1}`,
         }),
       });

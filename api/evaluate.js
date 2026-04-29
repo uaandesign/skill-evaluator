@@ -58,7 +58,7 @@ export default async function handler(req, res) {
       }
       zipBuffer = req.body;
     } else if (contentType.includes('application/json')) {
-      const { skill_zip_base64, skill_id } = req.body || {};
+      const { skill_zip_base64, skill_id, skill_content, skill_name } = req.body || {};
 
       if (skill_zip_base64) {
         try {
@@ -66,14 +66,20 @@ export default async function handler(req, res) {
         } catch {
           return res.status(400).json({ error: 'skill_zip_base64 解码失败' });
         }
-      } else if (skill_id) {
-        // 把已入库 skill 包装成 zip 供 Python 脚本评估
+      } else if (skill_content) {
+        // 直接传入 skill 文本（前端最常用方式）
+        zipBuffer = wrapSkillContentAsZip({
+          name: skill_name || 'skill',
+          skill_content,
+        });
+      } else if (skill_id && isValidUUID(skill_id)) {
+        // skill_id 必须是合法 UUID 才查 DB；非 UUID 走 skill_content 路径
         const skill = await Skills.getById(skill_id);
         if (!skill) return res.status(404).json({ error: 'skill 不存在' });
         zipBuffer = wrapSkillContentAsZip(skill);
       } else {
         return res.status(400).json({
-          error: '需要 skill_zip_base64 或 skill_id（或直接发送 application/zip body）',
+          error: '需要 skill_content / skill_zip_base64 / skill_id (UUID)',
         });
       }
     } else {
@@ -92,7 +98,9 @@ export default async function handler(req, res) {
       ? String(req.query.standards).split(',').map((s) => s.trim()).filter(Boolean)
       : null;
     const saveResults = req.query.save === 'true';
-    const skillIdForSave = req.body?.skill_id || null;
+    // 仅当 skill_id 是合法 UUID 时才作为 FK 入库；否则置 null（前端临时 skill 无 DB 记录）
+    const skillIdForSave = isValidUUID(req.body?.skill_id) ? req.body.skill_id : null;
+    const skillNameForSave = req.body?.skill_name || null;
     const userId = req.headers['x-user-id'] || 'anonymous';
 
     // ─── 评估 ──────────────────────────────────────────────────────
@@ -158,6 +166,12 @@ function wrapSkillContentAsZip(skill) {
     Buffer.from(skill.skill_content || '', 'utf-8')
   );
   return zip.toBuffer();
+}
+
+// 简单 UUID v1-v5 校验：标准 8-4-4-4-12 hex 格式
+function isValidUUID(s) {
+  if (!s || typeof s !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 }
 
 async function saveEvaluationResult({ skillId, standardId, fingerprint, report, error, duration }) {

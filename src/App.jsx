@@ -5,6 +5,7 @@ import CompareTest from './components/CompareTest';
 import ConfigCenter from './components/ConfigCenter';
 import SkillLibrary from './components/SkillLibrary';
 import SkillEditor from './components/SkillEditor';
+import SkillEditorMVP from './components/SkillEditorMVP';
 import QualityEval from './components/QualityEval';
 import SkillEvaluatorModule from './components/SkillEvaluatorModule';
 import HomePage from './components/HomePage';
@@ -29,7 +30,8 @@ const App = () => {
       case 'compare-test':    return <CompareTest />;
       case 'config-center':   return <ConfigCenter />;
       case 'skill-library':   return <SkillLibrary />;
-      case 'skill-editor':    return <SkillEditor />;
+      case 'skill-editor':    return <SkillEditorMVP />;
+      case 'skill-editor-legacy': return <SkillEditor />; /* 旧版（含运行测试），保留以备后续二期启用 */
       case 'quality-eval':    return <QualityEval />;
       case 'skill-evaluator': return <SkillEvaluatorModule />;
       default:                return <HomePage />;  // 默认进首页

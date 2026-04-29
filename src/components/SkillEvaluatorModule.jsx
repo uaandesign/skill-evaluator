@@ -39,6 +39,95 @@ function computeEvalGrade(score, dimensionalScores) {
   return score >= 90 ? '通过' : '警告';
 }
 
+// ── 辅助：把新 /api/evaluate 的响应转成兼容旧渲染器的 shape ──────────────
+// 新格式: { fingerprint, duration_ms, results: [{standard, report, error?}] }
+//   - report = { score, grade, generic_assessment|volcano_assessment, category_scores, checks }
+// 旧渲染器期望: { summary:{overall_score, grade, tag}, dimensional_scores:{...}, evaluation_source }
+// 策略：取启用的多个标准，平均分作为 overall，每个标准映射成一个 dimension
+function transformPyEvalResults(evalData, selectedModel) {
+  const results = evalData?.results || [];
+  if (results.length === 0) {
+    return { summary: { overall_score: null, grade: '—', tag: '—' }, dimensional_scores: {}, py_results: [] };
+  }
+
+  // 过滤掉执行失败的
+  const successResults = results.filter((r) => r.report && !r.error);
+  if (successResults.length === 0) {
+    return {
+      summary: { overall_score: null, grade: '—', tag: '执行失败' },
+      dimensional_scores: {},
+      py_results: results,
+      errors: results.map((r) => `${r.standard?.standard_key}: ${r.error}`).filter(Boolean),
+    };
+  }
+
+  // 综合分 = 各标准 score 的简单算术平均
+  const overall = Math.round(
+    successResults.reduce((sum, r) => sum + (r.report.score || 0), 0) / successResults.length
+  );
+
+  // tag: 任一标准为"不通过" → 整体不通过；否则任一"警告" → 警告；都通过 → 通过
+  const tags = successResults.map(
+    (r) => r.report.generic_assessment?.tag || r.report.volcano_assessment?.tag || '—'
+  );
+  const overallTag = tags.includes('不通过') ? '不通过' : tags.includes('警告') ? '警告' : '通过';
+
+  // 把每个 standard 的 category_scores 拍平到 dimensional_scores
+  // 同时给每个 dimension 加 standard_key 前缀避免冲突
+  const dimensional_scores = {};
+  for (const r of successResults) {
+    const cats = r.report.category_scores || {};
+    for (const [catKey, catData] of Object.entries(cats)) {
+      const dimKey = `${r.standard.standard_key}::${catKey}`;
+      dimensional_scores[dimKey] = {
+        score: catData.earned ?? 0,
+        max:   catData.available ?? 0,
+        display_name: catData.display_name_zh || catKey,
+        passed_checks: catData.passed_checks ?? 0,
+        failed_checks: catData.failed_checks ?? 0,
+        total_checks:  catData.total_checks ?? 0,
+        standard_key:  r.standard.standard_key,
+      };
+    }
+  }
+
+  return {
+    summary: {
+      overall_score: overall,
+      grade: successResults[0].report.grade || '—',
+      tag:   overallTag,
+    },
+    dimensional_scores,
+    evaluation_source: 'script',
+    fingerprint: evalData.fingerprint,
+    duration_ms: evalData.duration_ms,
+    // 保留新格式原始数据，供新渲染器使用（待 Step 5b 完成后启用）
+    py_results: successResults,
+    optimization_suggestions: [],   // 留空，后续 Step 6 接 LLM 优化建议
+    weakness_analysis: collectFailedChecks(successResults),
+    model_displayname: selectedModel?.displayName || '—',
+  };
+}
+
+// 把所有 standard 的 failed checks 汇总成 weakness_analysis
+function collectFailedChecks(successResults) {
+  const failed = [];
+  for (const r of successResults) {
+    const checks = r.report.checks || [];
+    for (const c of checks) {
+      if (c.passed === false || c.passed === 0) {
+        failed.push({
+          standard: r.standard.display_name || r.standard.standard_key,
+          category: c.category_name_zh || c.category || '',
+          title: c.title_zh || c.id || '未知检查',
+          message: c.result_message_zh || c.evidence || '',
+        });
+      }
+    }
+  }
+  return { failed_checks: failed };
+}
+
 const S = {
   divider:    { borderTop: '1px solid #e5e7eb', margin: '14px 0' },
   label:      { fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6, display: 'block', textTransform: 'uppercase', letterSpacing: '0.04em' },
@@ -163,9 +252,15 @@ export default function SkillEvaluatorModule() {
   const skillContent    = (selectedVersionIndex !== null && versions[selectedVersionIndex])
     ? versions[selectedVersionIndex].content : '';
   // 评估模型从全局 evalModelId 获取（在配置中心-评估标准 Tab 中配置）
+  // MVP 一期：评估走 Python 静态规则，不依赖大模型；模型仅用于"优化建议"
   const selectedModel   = modelConfigs.find((m) => m.id === evalModelId) || null;
-  const isReady         = evalModelId && selectedSkillId && selectedVersionIndex !== null
-    && testCasesJson.trim() && !testCasesError;
+  // 测试用例评估默认禁用（一期），仅在 judgeEnabled=true 或显式提供测试用例时需要
+  // MVP 一期 testcase 功能关闭：默认 false
+  const testcaseFeaturesEnabled = false; // TODO: 接 app_settings.testcase_features_enabled
+  const requiresLLM    = judgeEnabled === true || testcaseFeaturesEnabled;
+  const isReady         = !!selectedSkillId
+    && selectedVersionIndex !== null
+    && (!requiresLLM || !!evalModelId);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleSkillChange = (id) => {
@@ -223,40 +318,45 @@ export default function SkillEvaluatorModule() {
   };
 
   const handleEvaluate = async () => {
-    if (!isReady) { message.warning('请完成所有配置项'); return; }
-    let parsedCases;
-    try { parsedCases = JSON.parse(testCasesJson); }
-    catch { message.error('测试用例 JSON 格式有误'); return; }
+    if (!isReady) {
+      message.warning(requiresLLM ? '请配置评估模型' : '请选择技能和版本');
+      return;
+    }
 
     setEvaluating(true);
     set({ results: null, expandedRows: {}, resultsTab: 'evaluation' });
+
     try {
-      const res = await fetch('/api/evaluate-skill', {
+      // ─── MVP 一期：纯 Python 静态评估（/api/evaluate）─────────────────
+      // 把当前 skill 内容打包成 zip 直接评估，不入库（saved_id 由前端按需保存）
+      const skillName = (selectedSkill?.name || 'skill').replace(/[^\w-]/g, '-');
+      const skillPath = `${skillName}/SKILL.md`;
+      // 简单内联打包：浏览器原生没 zip API，发 JSON 让后端自己包
+      const evalRes = await fetch('/api/evaluate?save=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          skill_id:      selectedSkillId,
+          // 通过 skill_id 让后端读 skill_content 并自动包成 zip
+          skill_id: selectedSkillId,
+          // 版本信息附带（仅存档用）
           skill_version: versions[selectedVersionIndex]?.description || `v${selectedVersionIndex + 1}`,
-          skill_content: skillContent,
-          skill_name:    selectedSkill?.name || '',
-          test_cases:    parsedCases,
-          model_config:  selectedModel,
-          skill_category: selectedSkill?.category || null,
-          // 上传的评估标准 skill（未上传时为 null，后端自动回退至内置规则）
-          // 传递完整 standard 对象（后端自动处理文本/压缩包），null 时回退内置规则
-          generic_eval_skill:     genericStd     || null,
-          specialized_eval_skill: specializedStd || null,
-          volcano_eval_skill:     volcanoStd     || null,
-          // Judge 模型开关：配置中心「启用 Judge 模型评分」控制
-          use_judge: judgeEnabled === true,
         }),
       });
-      const data = await res.json();
-      if (data.error) {
-        message.error(data.error);
-      } else {
-        set({ results: data, resultsTab: 'evaluation' });
-        message.success('评估完成');
+
+      const evalData = await evalRes.json();
+      if (evalData.error) {
+        message.error(evalData.error + (evalData.details ? `（${evalData.details}）` : ''));
+        return;
+      }
+
+      // ─── 把 /api/evaluate 的多标准结果转成兼容旧渲染的 shape ─────────
+      const transformed = transformPyEvalResults(evalData, selectedModel);
+      set({ results: transformed, resultsTab: 'evaluation' });
+      message.success('评估完成');
+
+      const data = transformed;
+      // 复用原有等级回写到技能卡片的逻辑
+      {
 
         // 把最新评估等级写回技能对象，供技能库卡片展示
         const evalGrade = computeEvalGrade(data.summary?.overall_score, data.dimensional_scores);
@@ -394,11 +494,11 @@ export default function SkillEvaluatorModule() {
         </Button>
       </div>
 
-      {/* 评估模型提示（只读，跳转配置中心修改） */}
+      {/* 评估模型提示（仅作为可选项；评估走 Python 静态规则不依赖模型）*/}
       {selectedModel ? (
         <div style={{ marginBottom: 14, padding: '8px 10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <span style={{ fontWeight: 600, color: '#111827' }}>评估模型</span>
+            <span style={{ fontWeight: 600, color: '#111827' }}>优化建议模型</span>
             <span style={{ color: '#6b7280', marginLeft: 8 }}>{selectedModel.displayName || `${selectedModel.provider}/${selectedModel.model}`}</span>
           </div>
           <Button size="small" type="link" style={{ fontSize: 11, padding: 0, color: '#374151' }} onClick={() => setActiveTab('config-center')}>
@@ -406,8 +506,8 @@ export default function SkillEvaluatorModule() {
           </Button>
         </div>
       ) : (
-        <div style={{ marginBottom: 14, padding: '8px 10px', background: '#fafafa', border: '1px dashed #d1d5db', borderRadius: 6, fontSize: 12, color: '#9ca3af', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>未配置评估模型</span>
+        <div style={{ marginBottom: 14, padding: '8px 10px', background: '#fafafa', border: '1px dashed #d1d5db', borderRadius: 6, fontSize: 12, color: '#6b7280', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>评估不依赖大模型 · 配置后可解锁优化建议</span>
           <Button size="small" type="link" style={{ fontSize: 11, padding: 0, color: '#374151' }} onClick={() => setActiveTab('config-center')}>
             前往配置 →
           </Button>
@@ -586,7 +686,13 @@ export default function SkillEvaluatorModule() {
       </Button>
       {!isReady && (
         <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, textAlign: 'center' }}>
-          {!evalModelId ? '请先在「配置中心 → 评估标准」配置评估模型' : '请完成以上所有配置项'}
+          {!selectedSkillId
+            ? '请先选择技能'
+            : selectedVersionIndex === null
+            ? '请选择技能版本'
+            : requiresLLM && !evalModelId
+            ? '当前已启用 Judge / 测试用例评估，需在「配置中心 → 评估标准」配置评估模型'
+            : '请完成以上所有配置项'}
         </div>
       )}
     </div>

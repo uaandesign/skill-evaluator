@@ -199,6 +199,79 @@ const ConfigCenter = () => {
     if (typeof syncAppSettings === 'function') syncAppSettings();
   }, []);
 
+  // ─── 服务器端评估标准列表（/api/standards）──────────────────────────
+  const [serverStandards, setServerStandards] = useState([]);
+  const [stdLoading, setStdLoading] = useState(false);
+  const [stdUploadBusy, setStdUploadBusy] = useState(false);
+
+  const refreshServerStandards = async () => {
+    setStdLoading(true);
+    try {
+      const r = await fetch('/api/standards');
+      const data = await r.json();
+      setServerStandards(Array.isArray(data?.standards) ? data.standards : []);
+    } catch (err) {
+      console.warn('[ConfigCenter] 加载评估标准失败:', err.message);
+    } finally {
+      setStdLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshServerStandards();
+  }, []);
+
+  const toggleStandardActive = async (id, current) => {
+    try {
+      const r = await fetch(`/api/standards/${id}?action=active`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !current }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      message.success(!current ? '已启用' : '已停用');
+      refreshServerStandards();
+    } catch (err) {
+      message.error('切换失败: ' + err.message);
+    }
+  };
+
+  const deleteServerStandard = async (id, key) => {
+    if (!window.confirm(`确定删除评估标准「${key}」？此操作不可恢复。`)) return;
+    try {
+      const r = await fetch(`/api/standards/${id}`, { method: 'DELETE' });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      message.success('已删除');
+      refreshServerStandards();
+    } catch (err) {
+      message.error('删除失败: ' + err.message);
+    }
+  };
+
+  const uploadServerStandard = async (file) => {
+    setStdUploadBusy(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const r = await fetch('/api/standards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/zip' },
+        body: buf,
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      message.success(`已上传：${data.standard_key} · ${data.version_label || ''}`);
+      refreshServerStandards();
+    } catch (err) {
+      message.error('上传失败: ' + err.message);
+    } finally {
+      setStdUploadBusy(false);
+    }
+    return false; // 阻止 antd 默认行为
+  };
+
   // Local form state for adding models
   const [providerApiKeys, setProviderApiKeys] = useState({});
   const [providerBaseUrls, setProviderBaseUrls] = useState({});
@@ -748,6 +821,87 @@ const ConfigCenter = () => {
               border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, color: '#374151',
             }}>
               ⚠️ 测试用例评估已开启。评估流程将依赖大模型生成/执行用例，需在上方配置评估专用模型。
+            </div>
+          )}
+        </div>
+
+        {/* ── 服务器端评估标准（来自 /api/standards 数据库）── */}
+        <div style={{
+          background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+          padding: '16px 20px', marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#111827', marginBottom: 4 }}>
+                已部署评估标准
+              </div>
+              <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5 }}>
+                来自服务器（含内置标准 + 用户上传的标准）。评估时自动运行所有"已启用"的标准。
+              </div>
+            </div>
+            <Upload accept=".zip" showUploadList={false} beforeUpload={uploadServerStandard} disabled={stdUploadBusy}>
+              <Button size="small" loading={stdUploadBusy} style={{ borderColor: '#111827', color: '#111827' }}>
+                上传新标准（.zip）
+              </Button>
+            </Upload>
+          </div>
+
+          {stdLoading ? (
+            <div style={{ fontSize: 12, color: '#9ca3af', padding: '12px 0' }}>加载中...</div>
+          ) : serverStandards.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#9ca3af', padding: '12px 0' }}>
+              暂无标准，请上传一个含 SKILL.md + scripts/*.py 的 zip 包
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {serverStandards.map((std) => (
+                <div key={std.id} style={{
+                  background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 6,
+                  padding: '12px 14px',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  gap: 12,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>
+                        {std.display_name || std.standard_key}
+                      </span>
+                      {std.is_builtin && (
+                        <Tag style={{ fontSize: 10, padding: '0 6px', lineHeight: '16px', borderRadius: 3, background: '#111827', color: '#fff', border: 'none' }}>
+                          BUILTIN
+                        </Tag>
+                      )}
+                      {std.rubric_version && (
+                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#9ca3af' }}>
+                          {std.rubric_version}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280' }}>
+                      <code style={{ background: 'transparent', padding: 0 }}>{std.standard_key}</code>
+                      {std.script_filename && (
+                        <span style={{ marginLeft: 8 }}>· scripts/{std.script_filename}</span>
+                      )}
+                      <span style={{ marginLeft: 8 }}>· 满分 {std.total_score || 100}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                    <Switch
+                      size="small"
+                      checked={std.is_active}
+                      onChange={() => toggleStandardActive(std.id, std.is_active)}
+                    />
+                    <span style={{ fontSize: 11, color: std.is_active ? '#111827' : '#9ca3af', minWidth: 28 }}>
+                      {std.is_active ? '启用' : '停用'}
+                    </span>
+                    {!std.is_builtin && (
+                      <Button size="small" danger style={{ fontSize: 11 }} onClick={() => deleteServerStandard(std.id, std.standard_key)}>
+                        删除
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

@@ -73,13 +73,22 @@ const App = () => {
         },
         components: {
           Menu: {
-            itemHeight: 40,
-            itemMarginInline: 6,
-            itemBorderRadius: 8,
+            itemHeight: 38,
+            itemMarginInline: 4,
+            itemBorderRadius: 0,                         /* hermes 风格无圆角 */
+            // 浅色 menu (内容页) - 不会用到，因为 sider 用 dark theme
             itemSelectedBg: '#eff6ff',
             itemSelectedColor: '#1d4ed8',
             itemHoverBg: '#eff6ff',
             itemHoverColor: '#2563eb',
+            // 深色 menu (sider) hermes 风格
+            darkItemBg: 'transparent',
+            darkSubMenuItemBg: 'transparent',
+            darkItemColor: '#a39880',
+            darkItemSelectedBg: 'rgba(212, 184, 255, 0.10)',
+            darkItemSelectedColor: '#ede4d0',
+            darkItemHoverBg: 'rgba(237, 228, 208, 0.06)',
+            darkItemHoverColor: '#ede4d0',
           },
           Button: {
             borderRadius: 8,
@@ -106,8 +115,9 @@ const App = () => {
           style={{
             height: '52px', lineHeight: '52px', padding: '0 24px',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            borderBottom: '1px solid #e5e7eb', backgroundColor: '#fff',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.06)', zIndex: 10,
+            borderBottom: '1px solid rgba(237, 228, 208, 0.12)',
+            backgroundColor: '#0d1311', /* hermes 深绿黑色 */
+            zIndex: 10,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -115,17 +125,28 @@ const App = () => {
               src="/huo.svg"
               alt="VolcD"
               style={{
-                width: '30px',
-                height: '30px',
-                objectFit: 'contain'
+                width: '26px', height: '26px', objectFit: 'contain',
+                filter: 'invert(0.92) sepia(0.3) hue-rotate(15deg)',  /* 让 logo 与浅色调协调 */
               }}
             />
-            <span style={{ fontSize: '14px', fontWeight: 600, color: '#111827', letterSpacing: '-0.2px' }}>Skill Evaluator</span>
-            <div style={{ width: '1px', height: '16px', background: '#e5e7eb' }} />
-            <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 400 }}>{getTabTitle()}</span>
+            <span style={{
+              fontFamily: "'Cormorant Garamond', Georgia, 'Times New Roman', serif",
+              fontSize: '20px', fontWeight: 500, color: '#ede4d0', letterSpacing: '-0.01em',
+            }}>Skill Evaluator</span>
+            <div style={{ width: '1px', height: '14px', background: 'rgba(237,228,208,0.20)' }} />
+            <span style={{
+              fontFamily: "'SF Mono', 'JetBrains Mono', Menlo, monospace",
+              fontSize: '11px', color: '#a39880', letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}>{getTabTitle()}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '11px', color: '#6b7280', background: '#f3f4f6', padding: '3px 10px', borderRadius: '6px', fontWeight: 500, border: '1px solid #e5e7eb', letterSpacing: '0.03em', lineHeight: '18px' }}>v2.0</span>
+            <span style={{
+              fontFamily: "'SF Mono', monospace",
+              fontSize: '10px', color: '#a39880', background: 'rgba(212, 184, 255, 0.10)',
+              padding: '3px 10px', borderRadius: '0', fontWeight: 500,
+              border: '1px solid rgba(212, 184, 255, 0.20)',
+              letterSpacing: '0.12em', lineHeight: '18px',
+            }}>MVP 1.0</span>
           </div>
         </Header>
 
@@ -133,7 +154,11 @@ const App = () => {
           <Sider
             collapsed={collapsed} onCollapse={setCollapsed} collapsible trigger={null}
             width={196} collapsedWidth={56}
-            style={{ backgroundColor: '#fff', borderRight: '1px solid #e5e7eb', overflow: 'auto', boxShadow: '1px 0 4px rgba(0,0,0,0.03)' }}
+            style={{
+              backgroundColor: '#0d1311',
+              borderRight: '1px solid rgba(237, 228, 208, 0.12)',
+              overflow: 'auto',
+            }}
           >
             <div style={{ padding: '8px 4px' }}>
               <Menu
@@ -141,7 +166,13 @@ const App = () => {
                 selectedKeys={[activeTab]}
                 items={menuItems}
                 onClick={({ key }) => setActiveTab(key)}
-                style={{ border: 'none', background: 'transparent', fontSize: '13px' }}
+                style={{
+                  border: 'none', background: 'transparent', fontSize: '12px',
+                  color: '#a39880',
+                  fontFamily: "'SF Mono', 'JetBrains Mono', Menlo, monospace",
+                  letterSpacing: '0.06em',
+                }}
+                theme="dark"
               />
             </div>
             <div
@@ -149,10 +180,11 @@ const App = () => {
               style={{
                 position: 'absolute', bottom: 0, left: 0, right: 0,
                 padding: '12px', textAlign: 'center',
-                borderTop: '1px solid #f3f4f6',
+                borderTop: '1px solid rgba(237, 228, 208, 0.08)',
                 cursor: 'pointer', fontSize: '12px',
-                color: '#9ca3af', userSelect: 'none',
+                color: '#6a6052', userSelect: 'none',
                 transition: 'color 200ms',
+                fontFamily: "'SF Mono', monospace",
               }}
             >
               {collapsed ? '→' : '←'}

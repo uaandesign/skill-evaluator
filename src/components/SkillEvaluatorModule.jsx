@@ -39,11 +39,27 @@ function computeEvalGrade(score, dimensionalScores) {
   return score >= 90 ? '通过' : '警告';
 }
 
+// ── 辅助：判断一个标准是否属于"火山评估"分类 ──────────────────────────────
+// 用于把多个评估标准的结果拆到 通用评估 vs 火山评估 两个独立分区
+function isVolcanoStandard(standardKey) {
+  if (!standardKey) return false;
+  const k = standardKey.toLowerCase();
+  return k.includes('volcano') || k.includes('火山') || k.startsWith('ved-') || k === 'volcano-uploaded';
+}
+
 // ── 辅助：把新 /api/evaluate 的响应转成兼容旧渲染器的 shape ──────────────
 // 新格式: { fingerprint, duration_ms, results: [{standard, report, error?}] }
 //   - report = { score, grade, generic_assessment|volcano_assessment, category_scores, checks }
-// 旧渲染器期望: { summary:{overall_score, grade, tag}, dimensional_scores:{...}, evaluation_source }
-// 策略：取启用的多个标准，平均分作为 overall，每个标准映射成一个 dimension
+//   - report.category_scores[k] = { earned, available, display_name_zh, description_zh, ... }
+//
+// 旧渲染器期望:
+//   { summary, dimensional_scores: {中文名:{...}}, volcano_dimensional_scores: {中文名:{...}} }
+//
+// 策略：
+//   1) 综合分 = 各标准 score 的算术平均
+//   2) 通用类标准（skill-evaluator 等）→ dimensional_scores（中文 key）
+//   3) 火山类标准（ved-/volcano-）→ volcano_dimensional_scores（中文 key）
+//   4) 维度卡片直接用中文 display_name_zh，不再显示 standard_key 前缀
 function transformPyEvalResults(evalData, selectedModel) {
   const results = evalData?.results || [];
   if (results.length === 0) {
@@ -72,38 +88,63 @@ function transformPyEvalResults(evalData, selectedModel) {
   );
   const overallTag = tags.includes('不通过') ? '不通过' : tags.includes('警告') ? '警告' : '通过';
 
-  // 把每个 standard 的 category_scores 拍平到 dimensional_scores
-  // 同时给每个 dimension 加 standard_key 前缀避免冲突
+  // 拆桶：通用评估 vs 火山评估
   const dimensional_scores = {};
+  const volcano_dimensional_scores = {};
   for (const r of successResults) {
+    const isVolcano = isVolcanoStandard(r.standard.standard_key);
+    const targetBucket = isVolcano ? volcano_dimensional_scores : dimensional_scores;
     const cats = r.report.category_scores || {};
     for (const [catKey, catData] of Object.entries(cats)) {
-      const dimKey = `${r.standard.standard_key}::${catKey}`;
-      dimensional_scores[dimKey] = {
+      // 中文名作为 key（让 UI 卡片标题和雷达图标签直接显示中文）
+      // 如果重名（极少见），后缀加标准 key 避免覆盖
+      let dimKey = catData.display_name_zh || catKey;
+      if (targetBucket[dimKey]) dimKey = `${dimKey}（${r.standard.standard_key}）`;
+      targetBucket[dimKey] = {
         score: catData.earned ?? 0,
         max:   catData.available ?? 0,
+        eng_name: catKey,                // 英文 key 作为副标题展示
         display_name: catData.display_name_zh || catKey,
+        description: catData.description_zh || '',
         passed_checks: catData.passed_checks ?? 0,
         failed_checks: catData.failed_checks ?? 0,
         total_checks:  catData.total_checks ?? 0,
         standard_key:  r.standard.standard_key,
+        standard_display_name: r.standard.display_name,
       };
     }
   }
+
+  // 火山如果空表示用户没上传火山标准 → UI 会显示"未获取标准"提示
+  const hasVolcano = Object.keys(volcano_dimensional_scores).length > 0;
+
+  // 单独算 通用 / 火山 各自的总分（供中间进度条展示）
+  const genericReports  = successResults.filter((r) => !isVolcanoStandard(r.standard.standard_key));
+  const volcanoReports  = successResults.filter((r) =>  isVolcanoStandard(r.standard.standard_key));
+  const genericScore = genericReports.length > 0
+    ? Math.round(genericReports.reduce((s, r) => s + (r.report.score || 0), 0) / genericReports.length)
+    : null;
+  const volcanoScore = volcanoReports.length > 0
+    ? Math.round(volcanoReports.reduce((s, r) => s + (r.report.score || 0), 0) / volcanoReports.length)
+    : null;
 
   return {
     summary: {
       overall_score: overall,
       grade: successResults[0].report.grade || '—',
       tag:   overallTag,
+      generic_score: genericScore,
+      volcano_score: volcanoScore,
     },
     dimensional_scores,
+    volcano_dimensional_scores: hasVolcano ? volcano_dimensional_scores : null,
+    volcano_skipped: !hasVolcano,
     evaluation_source: 'script',
     fingerprint: evalData.fingerprint,
     duration_ms: evalData.duration_ms,
-    // 保留新格式原始数据，供新渲染器使用（待 Step 5b 完成后启用）
+    // 保留新格式原始数据
     py_results: successResults,
-    optimization_suggestions: [],   // 留空，后续 Step 6 接 LLM 优化建议
+    optimization_suggestions: [],
     weakness_analysis: collectFailedChecks(successResults),
     model_displayname: selectedModel?.displayName || '—',
   };
@@ -949,7 +990,11 @@ export default function SkillEvaluatorModule() {
                     : dimMax != null && dimMax > 0 ? Math.round(score / dimMax * 100)
                     : isHundredScale ? score : score * 20;
                   const passedThreshold = score100 != null && score100 >= 70;
-                  const engName = DIM_ENGLISH[dimKey] || dimKey.toUpperCase().replace(/\s+/g, '_').slice(0, 14);
+                  // 优先用 transform 写入的 entry.eng_name（英文 category key）
+                  // 兜底再走原有 DIM_ENGLISH 映射；中文名超长时不再生硬 slice
+                  const engName = (typeof entry === 'object' && entry?.eng_name)
+                    ? entry.eng_name.toUpperCase().slice(0, 24)
+                    : (DIM_ENGLISH[dimKey] || dimKey.toUpperCase().replace(/\s+/g, '_').slice(0, 14));
                   const barColor = score100 == null ? '#d1d5db'
                     : passedThreshold ? '#111827' : score100 >= 50 ? '#6b7280' : '#374151';
 

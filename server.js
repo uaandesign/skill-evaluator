@@ -30,8 +30,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ─── Middleware ────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '50mb' }));
 app.use(cors());
+// JSON body（普通 API）
+app.use(express.json({ limit: '50mb' }));
+// Zip / 二进制 body（用于参考 skill 上传等场景）
+// 仅当 Content-Type 是 application/zip 或 application/octet-stream 时启用
+app.use(
+  express.raw({
+    type: ['application/zip', 'application/octet-stream'],
+    limit: '50mb',
+  })
+);
 
 // ─── Serverless-style handler 适配器 ──────────────────────────────────────
 /**

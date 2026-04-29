@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Input, Button, Select, Collapse, Card, Space, Tag, Switch, message,
   Typography, Row, Col, Tooltip, Spin, Divider, Upload, Modal,
@@ -191,7 +191,13 @@ const ConfigCenter = () => {
     evalStandards, setEvalStandard, clearEvalStandard,
     evalModelId, setEvalModelId,
     judgeEnabled, setJudgeEnabled,
+    testcaseFeaturesEnabled, toggleAppSetting, syncAppSettings,
   } = useStore();
+
+  // 配置页打开时拉一次最新 settings，让多设备/多浏览器之间状态一致
+  useEffect(() => {
+    if (typeof syncAppSettings === 'function') syncAppSettings();
+  }, []);
 
   // Local form state for adding models
   const [providerApiKeys, setProviderApiKeys] = useState({});
@@ -675,7 +681,7 @@ const ConfigCenter = () => {
         {/* ── Judge 模型开关 ── */}
         <div style={{
           background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
-          padding: '16px 20px', marginBottom: 20,
+          padding: '16px 20px', marginBottom: 12,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -689,7 +695,13 @@ const ConfigCenter = () => {
             </div>
             <Switch
               checked={judgeEnabled}
-              onChange={setJudgeEnabled}
+              onChange={async (val) => {
+                // 立即更新本地（乐观更新）
+                setJudgeEnabled(val);
+                // 推到后端持久化（失败回滚）
+                const ok = await toggleAppSetting('judge_model_scoring_enabled', val);
+                if (!ok) setJudgeEnabled(!val);
+              }}
               style={{ flexShrink: 0, marginLeft: 16 }}
             />
           </div>
@@ -699,6 +711,43 @@ const ConfigCenter = () => {
               border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, color: '#374151',
             }}>
               ⚠️ Judge 模型已开启。仅在评估脚本失败时触发，会额外消耗模型 token。请确保上方已配置评估专用模型。
+            </div>
+          )}
+        </div>
+
+        {/* ── 测试用例评估开关（MVP 一期默认关闭）── */}
+        <div style={{
+          background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+          padding: '16px 20px', marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#111827', marginBottom: 4 }}>
+                启用测试用例评估
+              </div>
+              <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.6 }}>
+                开启后，评估页将显示"测试用例 JSON"输入区，并启用基于测试用例的多阶段 LLM 评估流程。<br />
+                <strong>MVP 一期建议关闭</strong>——纯 Python 静态规则评估更快、更稳定，且不消耗模型 token。
+              </div>
+            </div>
+            <Switch
+              checked={testcaseFeaturesEnabled}
+              onChange={async (val) => {
+                const ok = await toggleAppSetting('testcase_features_enabled', val);
+                if (!ok) {
+                  // 后端失败时不更新本地状态
+                  console.error('切换失败');
+                }
+              }}
+              style={{ flexShrink: 0, marginLeft: 16 }}
+            />
+          </div>
+          {testcaseFeaturesEnabled && (
+            <div style={{
+              marginTop: 10, padding: '8px 12px', background: '#f9fafb',
+              border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, color: '#374151',
+            }}>
+              ⚠️ 测试用例评估已开启。评估流程将依赖大模型生成/执行用例，需在上方配置评估专用模型。
             </div>
           )}
         </div>

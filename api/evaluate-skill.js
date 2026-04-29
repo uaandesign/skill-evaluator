@@ -425,6 +425,22 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  // ─── MVP 一期开关 ───────────────────────────────────────────
+  // 旧的多阶段 LLM 评估仅在 testcase_features_enabled=true 时启用
+  try {
+    const { initializePool, AppSettings } = await import('../lib/db.js');
+    initializePool(process.env.DATABASE_URL);
+    const enabled = await AppSettings.get('testcase_features_enabled');
+    if (enabled !== true) {
+      return res.status(503).json({
+        error: '多阶段 LLM 评估在配置中心已关闭，当前使用 Python 静态评估（/api/evaluate）',
+        hint: '前往 配置中心 → 评估标准 → 启用测试用例评估 开启此功能',
+      });
+    }
+  } catch (e) {
+    return res.status(503).json({ error: '功能不可用', details: e.message });
+  }
+
   try {
     const {
       skill_content, test_cases, model_config,

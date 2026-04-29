@@ -148,6 +148,23 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  // ─── MVP 一期开关：app_settings.testcase_features_enabled ───
+  // 默认 false 时拒绝调用，避免无意触发 LLM 配额
+  try {
+    const { initializePool, AppSettings } = await import('../lib/db.js');
+    initializePool(process.env.DATABASE_URL);
+    const enabled = await AppSettings.get('testcase_features_enabled');
+    if (enabled !== true) {
+      return res.status(503).json({
+        error: '测试用例评估功能在配置中心已关闭',
+        hint: '前往 配置中心 → 评估标准 → 启用测试用例评估 开启此功能',
+      });
+    }
+  } catch (e) {
+    console.warn('[run-skill] 无法读取 settings，默认关闭:', e.message);
+    return res.status(503).json({ error: '测试用例评估功能不可用', details: e.message });
+  }
+
   const startTime = Date.now();
 
   try {

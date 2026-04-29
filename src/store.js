@@ -419,9 +419,60 @@ export const useStore = create(
        * judgeEnabled — 是否启用 LLM Judge 模型评分（配置中心 → 评估标准 中控制）
        * false（默认）：一期跳过 Judge，使用 Python 脚本或执行结果直接评估
        * true：启用 Judge 模型，在脚本失败时回退 LLM Judge 评分
+       *
+       * 真实持久化在后端 app_settings 表（key: judge_model_scoring_enabled）
+       * 此本地状态仅作为 UI 缓存，启动时从 /api/settings 同步
        */
       judgeEnabled: false,
       setJudgeEnabled: (enabled) => set({ judgeEnabled: enabled }),
+
+      /**
+       * testcaseFeaturesEnabled — 是否启用测试用例生成/评估（MVP 一期默认关闭）
+       * 真实持久化在后端 app_settings.testcase_features_enabled
+       * 关闭时所有测试用例相关 UI 和 API 路由都禁用
+       */
+      testcaseFeaturesEnabled: false,
+      setTestcaseFeaturesEnabled: (enabled) => set({ testcaseFeaturesEnabled: enabled }),
+
+      /**
+       * 从后端 /api/settings 拉所有开关状态同步到本地 store
+       */
+      syncAppSettings: async () => {
+        try {
+          const r = await fetch('/api/settings');
+          if (!r.ok) return;
+          const data = await r.json();
+          const s = data?.settings || {};
+          set({
+            judgeEnabled: s.judge_model_scoring_enabled === true,
+            testcaseFeaturesEnabled: s.testcase_features_enabled === true,
+          });
+        } catch (err) {
+          console.warn('[store] syncAppSettings failed:', err.message);
+        }
+      },
+
+      /**
+       * 切换某个全局开关 → 推到后端持久化 → 同步本地状态
+       * @param key 'testcase_features_enabled' | 'judge_model_scoring_enabled'
+       */
+      toggleAppSetting: async (key, value) => {
+        try {
+          const r = await fetch(`/api/settings/${encodeURIComponent(key)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value }),
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          // 同步本地状态
+          if (key === 'judge_model_scoring_enabled') set({ judgeEnabled: value });
+          if (key === 'testcase_features_enabled')   set({ testcaseFeaturesEnabled: value });
+          return true;
+        } catch (err) {
+          console.error('[store] toggleAppSetting failed:', err.message);
+          return false;
+        }
+      },
 
       /**
        * evalStandards — 用户上传的评估标准 Skill 文件
@@ -462,6 +513,7 @@ export const useStore = create(
         evalStandards:  state.evalStandards,
         evalModelId:    state.evalModelId,
         judgeEnabled:   state.judgeEnabled,
+        testcaseFeaturesEnabled: state.testcaseFeaturesEnabled,
       }),
     }
   )

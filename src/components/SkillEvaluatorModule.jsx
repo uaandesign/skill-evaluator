@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Layout, Select, Button, Tabs, message, Modal,
   Spin, Upload, Progress, Tooltip, Tag, Alert,
@@ -262,7 +262,7 @@ export default function SkillEvaluatorModule() {
     skillEvalState, setSkillEvalState,
     evalStandards, setEvalStandard, clearEvalStandard,
     evalModelId, setActiveTab,
-    judgeEnabled,
+    judgeEnabled, testcaseFeaturesEnabled, syncAppSettings,
   } = useStore();
 
   // All UI state lives in Zustand so it survives tab switches
@@ -310,6 +310,12 @@ export default function SkillEvaluatorModule() {
     return false;
   };
 
+  // 启动时把后端 app_settings 同步到本地 store（保证 testcaseFeaturesEnabled 等开关一致）
+  useEffect(() => {
+    if (typeof syncAppSettings === 'function') syncAppSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Derived
   const selectedSkill   = skills.find((s) => s.id === selectedSkillId) || null;
   const versions        = selectedSkill?.versions || [];
@@ -319,9 +325,8 @@ export default function SkillEvaluatorModule() {
   // MVP 一期：评估走 Python 静态规则，不依赖大模型；模型仅用于"优化建议"
   const selectedModel   = modelConfigs.find((m) => m.id === evalModelId) || null;
   // 测试用例评估默认禁用（一期），仅在 judgeEnabled=true 或显式提供测试用例时需要
-  // MVP 一期 testcase 功能关闭：默认 false
-  const testcaseFeaturesEnabled = false; // TODO: 接 app_settings.testcase_features_enabled
-  const requiresLLM    = judgeEnabled === true || testcaseFeaturesEnabled;
+  // testcaseFeaturesEnabled 从 store 读取，与后端 app_settings 同步
+  const requiresLLM    = judgeEnabled === true || testcaseFeaturesEnabled === true;
   const isReady         = !!selectedSkillId
     && selectedVersionIndex !== null
     && (!requiresLLM || !!evalModelId);
@@ -624,35 +629,37 @@ export default function SkillEvaluatorModule() {
         )}
       </div>
 
-      <div style={S.divider} />
-
-      {/* 3. 测试用例 JSON */}
-      <div style={{ marginBottom: 14 }}>
-        <span style={S.label}>3. 测试用例（JSON）</span>
-        <Upload accept=".json" showUploadList={false} beforeUpload={handleFileUpload}>
-          <Button style={S.btnOutline}>上传 JSON 文件</Button>
-        </Upload>
-        <Button style={S.btnOutline} onClick={handleGenerateTestCases} loading={generating} disabled={!skillContent}>
-          {generating ? '生成中...' : '智能生成测试用例'}
-        </Button>
-        {/* JSON textarea — hidden in expanded mode (shown in dedicated panel) */}
-        {!inExpandedMode && (
-          <>
-            <textarea
-              rows={6}
-              placeholder={'[\n  {\n    "id": "1",\n    "name": "用例名称",\n    "input": "...",\n    "expected_output": "..."\n  }\n]'}
-              value={testCasesJson}
-              onChange={handleJsonChange}
-              style={{
-                width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 8, resize: 'vertical',
-                border: testCasesError ? '1px solid #374151' : '1px solid #e5e7eb',
-                borderRadius: 4, color: '#374151', background: '#f9fafb', boxSizing: 'border-box', outline: 'none',
-              }}
-            />
-            {testCasesError && <div style={{ fontSize: 11, color: '#374151', marginTop: 3 }}>{testCasesError}</div>}
-          </>
-        )}
-      </div>
+      {/* 3. 测试用例 JSON —— 仅当 testcaseFeaturesEnabled 时显示 */}
+      {testcaseFeaturesEnabled && (
+        <>
+          <div style={S.divider} />
+          <div style={{ marginBottom: 14 }}>
+            <span style={S.label}>3. 测试用例（JSON）</span>
+            <Upload accept=".json" showUploadList={false} beforeUpload={handleFileUpload}>
+              <Button style={S.btnOutline}>上传 JSON 文件</Button>
+            </Upload>
+            <Button style={S.btnOutline} onClick={handleGenerateTestCases} loading={generating} disabled={!skillContent}>
+              {generating ? '生成中...' : '智能生成测试用例'}
+            </Button>
+            {!inExpandedMode && (
+              <>
+                <textarea
+                  rows={6}
+                  placeholder={'[\n  {\n    "id": "1",\n    "name": "用例名称",\n    "input": "...",\n    "expected_output": "..."\n  }\n]'}
+                  value={testCasesJson}
+                  onChange={handleJsonChange}
+                  style={{
+                    width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 8, resize: 'vertical',
+                    border: testCasesError ? '1px solid #374151' : '1px solid #e5e7eb',
+                    borderRadius: 4, color: '#374151', background: '#f9fafb', boxSizing: 'border-box', outline: 'none',
+                  }}
+                />
+                {testCasesError && <div style={{ fontSize: 11, color: '#374151', marginTop: 3 }}>{testCasesError}</div>}
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       <div style={S.divider} />
 
@@ -1635,35 +1642,38 @@ export default function SkillEvaluatorModule() {
               </div>
             )}
 
-            <div style={S.divider} />
-
-            {/* Test cases full view */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ ...S.label, marginBottom: 0 }}>测试用例（JSON）</span>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <Upload accept=".json" showUploadList={false} beforeUpload={handleFileUpload}>
-                    <Button size="small" style={{ fontSize: 11, borderColor: '#d1d5db', color: '#374151' }}>上传</Button>
-                  </Upload>
-                  <Button size="small" style={{ fontSize: 11, borderColor: '#d1d5db', color: '#374151' }} onClick={handleGenerateTestCases} loading={generating} disabled={!skillContent}>
-                    {generating ? '生成中' : '智能生成'}
-                  </Button>
+            {/* Test cases full view —— 仅当 testcaseFeaturesEnabled 时显示 */}
+            {testcaseFeaturesEnabled && (
+              <>
+                <div style={S.divider} />
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ ...S.label, marginBottom: 0 }}>测试用例（JSON）</span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <Upload accept=".json" showUploadList={false} beforeUpload={handleFileUpload}>
+                        <Button size="small" style={{ fontSize: 11, borderColor: '#d1d5db', color: '#374151' }}>上传</Button>
+                      </Upload>
+                      <Button size="small" style={{ fontSize: 11, borderColor: '#d1d5db', color: '#374151' }} onClick={handleGenerateTestCases} loading={generating} disabled={!skillContent}>
+                        {generating ? '生成中' : '智能生成'}
+                      </Button>
+                    </div>
+                  </div>
+                  <textarea
+                    rows={12}
+                    placeholder={'[\n  {\n    "id": "1",\n    "name": "用例名称",\n    "input": "...",\n    "expected_output": "..."\n  }\n]'}
+                    value={testCasesJson}
+                    onChange={handleJsonChange}
+                    style={{
+                      width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 8, resize: 'vertical',
+                      border: testCasesError ? '1px solid #374151' : '1px solid #e5e7eb',
+                      borderRadius: 4, color: '#374151', background: '#f9fafb', boxSizing: 'border-box', outline: 'none',
+                      maxHeight: 'calc(50vh - 100px)',
+                    }}
+                  />
+                  {testCasesError && <div style={{ fontSize: 11, color: '#374151', marginTop: 3 }}>{testCasesError}</div>}
                 </div>
-              </div>
-              <textarea
-                rows={12}
-                placeholder={'[\n  {\n    "id": "1",\n    "name": "用例名称",\n    "input": "...",\n    "expected_output": "..."\n  }\n]'}
-                value={testCasesJson}
-                onChange={handleJsonChange}
-                style={{
-                  width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 8, resize: 'vertical',
-                  border: testCasesError ? '1px solid #374151' : '1px solid #e5e7eb',
-                  borderRadius: 4, color: '#374151', background: '#f9fafb', boxSizing: 'border-box', outline: 'none',
-                  maxHeight: 'calc(50vh - 100px)',
-                }}
-              />
-              {testCasesError && <div style={{ fontSize: 11, color: '#374151', marginTop: 3 }}>{testCasesError}</div>}
-            </div>
+              </>
+            )}
 
             <div style={S.divider} />
 

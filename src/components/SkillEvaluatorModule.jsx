@@ -468,50 +468,71 @@ export default function SkillEvaluatorModule() {
 
   const handleOptimize = () => {
     if (!results) return;
+    if (!selectedModel) {
+      message.warning('请先在「配置中心 → 评估标准」配置评估模型');
+      setActiveTab('config-center');
+      return;
+    }
+    if (!results.py_results || results.py_results.length === 0) {
+      message.warning('当前评估结果不支持智能优化（缺少结构化报告）');
+      return;
+    }
+
     Modal.confirm({
-      title: '一键优化',
-      content: '优化后将生成新的 Skill 版本，保留原始版本，是否继续？',
-      okText: '确认优化',
-      cancelText: '取消',
-      onOk: async () => {
-        setOptimizing(true);
-        try {
-          const res = await fetch('/api/optimize-skill', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              skill_id:             selectedSkillId,
-              skill_content:        skillContent,
-              evaluation_results:   results,
-              optimization_suggestions: results.optimization_suggestions,
-              model_config:         selectedModel,
-              current_version_count: versions.length,
-            }),
-          });
-          const data = await res.json();
-          if (data.optimized_content) {
-            saveSkillVersion(selectedSkillId, data.optimized_content, data.new_version || '优化版');
-
-            // 同步 SKILL.md frontmatter 中的 name 字段到技能库卡片
-            const fmMatch = data.optimized_content.match(/^---[\s\S]*?^name:\s*(.+?)$/m);
-            if (fmMatch) {
-              const newName = fmMatch[1].trim().replace(/^["']|["']$/g, '');
-              if (newName && newName !== selectedSkill?.name) {
-                updateSkill(selectedSkillId, { name: newName });
-              }
-            }
-
-            message.success(`优化成功，已生成新版本 ${data.new_version || '优化版'}`);
-          } else {
-            message.error(data.error || '优化失败，请重试');
-          }
-        } catch (err) {
-          message.error('请求失败: ' + err.message);
-        } finally {
-          setOptimizing(false);
-        }
-      },
+      title: '智能优化',
+      content: '将基于评估失败的检查项调用大模型生成针对性的优化建议；如选择"重写并生成新版本"则会自动改写 SKILL.md 并保存为新版本。',
+      okText: '生成建议',
+      cancelText: '重写并生成新版本',
+      onOk: () => runOptimize('suggestions'),
+      onCancel: () => runOptimize('rewrite'),
     });
+  };
+
+  const runOptimize = async (mode) => {
+    setOptimizing(true);
+    try {
+      const res = await fetch('/api/optimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skill_content: skillContent,
+          skill_name:    selectedSkill?.name || 'skill',
+          model_config:  selectedModel,
+          reports:       results.py_results,   // 来自 /api/evaluate 的 results 数组
+          mode,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        message.error(data.error + (data.hint ? `（${data.hint}）` : ''));
+        return;
+      }
+
+      // 把建议挂到 results 上，让现有 UI 能展示
+      set({
+        results: { ...results, optimization_suggestions: data.suggestions || [] },
+        resultsTab: 'optimization',
+      });
+
+      if (mode === 'rewrite' && data.optimized_content) {
+        saveSkillVersion(selectedSkillId, data.optimized_content, '优化版');
+        // 同步 SKILL.md frontmatter 中的 name 字段
+        const fmMatch = data.optimized_content.match(/^---[\s\S]*?^name:\s*(.+?)$/m);
+        if (fmMatch) {
+          const newName = fmMatch[1].trim().replace(/^["']|["']$/g, '');
+          if (newName && newName !== selectedSkill?.name) {
+            updateSkill(selectedSkillId, { name: newName });
+          }
+        }
+        message.success(`重写完成，已保存为新版本 · ${data.diff_summary || ''}`);
+      } else {
+        message.success(`已生成 ${data.suggestions?.length || 0} 条优化建议`);
+      }
+    } catch (err) {
+      message.error('请求失败: ' + err.message);
+    } finally {
+      setOptimizing(false);
+    }
   };
 
   const copyText = (text) => {
@@ -1526,18 +1547,34 @@ export default function SkillEvaluatorModule() {
           })}
         </div>
 
-        {/* 一键优化按钮 */}
+        {/* 一键优化按钮（条件展示）*/}
         <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 16 }}>
-          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 10, textAlign: 'center' }}>
-            点击后将根据以上优化建议自动改写 SKILL.md，并保存为新版本
-          </div>
-          <Button
-            style={{ width: '100%', height: 42, borderRadius: 4, fontWeight: 700, fontSize: 14, background: '#111827', borderColor: '#111827', color: '#fff' }}
-            loading={optimizing}
-            onClick={handleOptimize}
-          >
-            {optimizing ? '优化中...' : '一键优化'}
-          </Button>
+          {selectedModel ? (
+            <>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 10, textAlign: 'center' }}>
+                点"一键优化"将基于失败检查项调用大模型生成可执行的改进建议
+              </div>
+              <Button
+                style={{ width: '100%', height: 42, borderRadius: 4, fontWeight: 700, fontSize: 14, background: '#111827', borderColor: '#111827', color: '#fff' }}
+                loading={optimizing}
+                onClick={handleOptimize}
+              >
+                {optimizing ? '优化中...' : '一键优化'}
+              </Button>
+            </>
+          ) : (
+            <div style={{
+              padding: '12px 14px', background: '#fafafa',
+              border: '1px dashed #d1d5db', borderRadius: 6,
+              fontSize: 12, color: '#6b7280',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <span>未配置评估模型 · 配置后可解锁智能优化建议</span>
+              <Button size="small" type="link" style={{ fontSize: 11, padding: 0, color: '#374151' }} onClick={() => setActiveTab('config-center')}>
+                前往配置 →
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     );

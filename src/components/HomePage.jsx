@@ -15,14 +15,15 @@
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { Modal, message } from 'antd';
+import { Drawer, message } from 'antd';
 import { useStore } from '../store';
 
 // ─── 黑白 token ────────────────────────────────────────────────────────
 const C = {
   bg:        '#ffffff',
   bgSubtle:  '#fafafa',
-  bgInverse: '#0a0a0a',
+  bgInverse: '#0a0a0a',         // 仅首页"开始评估"主按钮等关键元素用反差黑
+  bgCmd:     '#f5f5f5',         // 命令行浅灰底（柔和不扎眼）
   text:      '#0a0a0a',
   textInv:   '#fafafa',
   textSub:   '#525252',
@@ -278,7 +279,7 @@ function FooterLink({ children, href, onClick }) {
   );
 }
 
-// ─── Sub: 命令行（带 COPY 按钮）────────────────────────────────────────
+// ─── Sub: 命令行（浅灰底，黑字） ───────────────────────────────────────
 function CmdLine({ cmd }) {
   const handleCopy = (e) => {
     e.stopPropagation();
@@ -290,12 +291,14 @@ function CmdLine({ cmd }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'stretch',
-      background: C.bgInverse, color: C.textInv,
+      background: C.bgCmd,
+      color: C.text,
+      border: `1px solid ${C.borderSoft}`,
       fontFamily: FONT_MONO, fontSize: 13,
       marginBottom: 8,
     }}>
       <div style={{
-        flex: 1, padding: '12px 16px',
+        flex: 1, padding: '11px 14px',
         whiteSpace: 'pre-wrap', wordBreak: 'break-all',
       }}>
         <span style={{ color: C.textFaint, marginRight: 10, userSelect: 'none' }}>$</span>
@@ -305,14 +308,13 @@ function CmdLine({ cmd }) {
         onClick={handleCopy}
         style={{
           background: 'transparent', border: 'none',
-          borderLeft: `1px solid rgba(250,250,250,0.15)`,
-          color: C.textInv, fontFamily: FONT_MONO,
+          borderLeft: `1px solid ${C.borderSoft}`,
+          color: C.textFaint, fontFamily: FONT_MONO,
           fontSize: 11, letterSpacing: '0.18em',
-          cursor: 'pointer', padding: '0 16px',
-          opacity: 0.7,
+          cursor: 'pointer', padding: '0 14px',
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.opacity = 1)}
-        onMouseLeave={(e) => (e.currentTarget.style.opacity = 0.7)}
+        onMouseEnter={(e) => (e.currentTarget.style.color = C.text)}
+        onMouseLeave={(e) => (e.currentTarget.style.color = C.textFaint)}
       >
         COPY
       </button>
@@ -320,19 +322,19 @@ function CmdLine({ cmd }) {
   );
 }
 
-// ─── Sub: 本地运行 Modal（详细教程）────────────────────────────────────
+// ─── Sub: 本地运行 Drawer（右侧抽屉，740px）─────────────────────────────
 function RunLocallyModal({ open, onClose }) {
   return (
-    <Modal
+    <Drawer
       open={open}
-      onCancel={onClose}
-      footer={null}
-      width={760}
+      onClose={onClose}
+      width={740}
       destroyOnClose
+      placement="right"
       title={
         <div style={{
           fontFamily: FONT_SANS,
-          fontSize: 22, fontWeight: 800,
+          fontSize: 20, fontWeight: 800,
           letterSpacing: '-0.02em',
           color: C.text,
         }}>
@@ -340,7 +342,8 @@ function RunLocallyModal({ open, onClose }) {
         </div>
       }
       styles={{
-        body: { padding: '4px 24px 24px', fontFamily: FONT_SANS },
+        body:   { padding: '20px 28px 32px', fontFamily: FONT_SANS, background: C.bg },
+        header: { borderBottom: `1px solid ${C.borderSoft}`, padding: '16px 28px' },
       }}
     >
       {/* 系统要求 */}
@@ -432,25 +435,27 @@ function RunLocallyModal({ open, onClose }) {
         />
       </div>
 
-      {/* GitHub link */}
+      {/* GitHub link 区块（浅灰底） */}
       <div style={{
-        marginTop: 24, padding: '12px 16px',
-        background: C.bgInverse, color: C.textInv,
+        marginTop: 24, padding: '14px 16px',
+        background: C.bgSubtle,
+        border: `1px solid ${C.borderSoft}`,
         fontFamily: FONT_MONO, fontSize: 12,
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        flexWrap: 'wrap', gap: 8,
       }}>
-        <span style={{ letterSpacing: '0.06em', opacity: 0.8 }}>
+        <span style={{ letterSpacing: '0.04em', color: C.textSub }}>
           源代码 / 提 Issue / 贡献：
         </span>
         <a
           href="https://github.com/uaandesign/skill-evaluator"
           target="_blank" rel="noreferrer"
-          style={{ color: C.textInv, textDecoration: 'underline' }}
+          style={{ color: C.text, textDecoration: 'underline', fontWeight: 500 }}
         >
           github.com/uaandesign/skill-evaluator ↗
         </a>
       </div>
-    </Modal>
+    </Drawer>
   );
 }
 

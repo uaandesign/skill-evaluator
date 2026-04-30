@@ -1,39 +1,36 @@
 /**
- * HomePage — Hermes-style 深色首页
+ * HomePage — 黑白双色 + hermes 结构
  * ----------------------------------------------------------------------
- * 参考 https://hermes-agent.nousresearch.com/ 的视觉语言：
- *   - 深绿黑色背景 (#0d1311)
- *   - 奶白色主文字 (#ede4d0)
- *   - 浅紫色 highlight (#d4b8ff) 用于命令框 / 重点
- *   - 衬线大标题 (Georgia/Cormorant 系列, italic 可选)
- *   - 等宽字体描述 (SF Mono / JetBrains Mono)
- *   - 大量留白, 居中对齐
+ * 配色：纯黑白（#fff / #0a0a0a / 灰阶），不使用任何彩色
+ * 结构参考 hermes-agent.nousresearch.com：
+ *   - 顶部 PILL 小字
+ *   - 衬线巨型标题（无装饰）
+ *   - 衬线副本（居中段落）
+ *   - 三个 CTA（黑边方块按钮）
+ *   - INSTALL/BUILD/START 序号 + 命令框 + COPY 按钮（命令框用黑底白字反差）
+ *   - 实时统计 4 格
+ *   - 极简 Footer
  *
- * 区块顺序：
- *   1. 顶部 nav-pill (OPEN SOURCE · MIT LICENSE)
- *   2. 大标题 Skill Evaluator (衬线斜体)
- *   3. 副本（描述文字）
- *   4. 三个 CTA: 开始评估 / 技能上传 / 配置中心
- *   5. 实时统计（4 格，前端 store + 后端合并）
- *   6. 本地运行（INSTALL / RUN 命令框 + COPY 按钮，Hermes 同款风格）
- *   7. Footer
+ * 字体：
+ *   衬线: Cormorant Garamond / Source Serif Pro / Georgia
+ *   等宽: SF Mono / JetBrains Mono / Menlo
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { message } from 'antd';
 import { useStore } from '../store';
 
-// ─── Hermes 风格 token ──────────────────────────────────────────────────
+// ─── 黑白 token ────────────────────────────────────────────────────────
 const C = {
-  bg:        '#0d1311',     // 深绿黑色
-  bgPanel:   '#0f1714',     // 略浅, 用于命令框背景
-  bgCmd:     'rgba(212, 184, 255, 0.10)', // 紫色 highlight 命令背景
-  cmdHL:     '#d4b8ff',     // 紫色高亮
-  text:      '#ede4d0',     // 奶白色主文字
-  textSub:   '#a39880',     // 偏暗的米色, 副文字
-  textFaint: '#6a6052',     // 灰色备注
-  border:    'rgba(237, 228, 208, 0.12)',
-  borderSoft:'rgba(237, 228, 208, 0.06)',
+  bg:        '#ffffff',
+  bgSubtle:  '#fafafa',
+  bgInverse: '#0a0a0a',          // 反差命令框背景
+  text:      '#0a0a0a',
+  textInv:   '#fafafa',          // 反差命令框文字
+  textSub:   '#525252',
+  textFaint: '#9ca3af',
+  border:    '#0a0a0a',
+  borderSoft:'#e5e7eb',
 };
 
 const FONT_SERIF = "'Cormorant Garamond', 'Source Serif Pro', 'Crimson Text', Georgia, 'Times New Roman', serif";
@@ -44,23 +41,19 @@ export default function HomePage() {
   const [serverStats, setServerStats] = useState(null);
 
   useEffect(() => {
-    fetch('/api/stats')
-      .then((r) => r.json())
-      .then(setServerStats)
-      .catch(() => setServerStats({}));
+    fetch('/api/stats').then((r) => r.json()).then(setServerStats).catch(() => setServerStats({}));
   }, []);
 
-  // 合并前端 store + 后端 stats，取最大值（前端有未同步到后端的本地 skill）
+  // 合并前端 store + 后端 stats
   const stats = useMemo(() => {
     const localSkills      = skills.length;
     const localVersions    = skills.reduce((s, sk) => s + (sk.versions?.length || 0), 0);
     const localEvaluations = evaluations.length;
-
     return {
-      skills:     Math.max(localSkills,      serverStats?.skills_count           || 0),
-      versions:   Math.max(localVersions,    serverStats?.skill_versions_count   || 0),
-      evals:      Math.max(localEvaluations, serverStats?.evaluations_count      || 0),
-      standards:  serverStats?.standards_active_count || 0,
+      skills:    Math.max(localSkills,      serverStats?.skills_count           || 0),
+      versions:  Math.max(localVersions,    serverStats?.skill_versions_count   || 0),
+      evals:     Math.max(localEvaluations, serverStats?.evaluations_count      || 0),
+      standards: serverStats?.standards_active_count || 0,
     };
   }, [skills, evaluations, serverStats]);
 
@@ -70,22 +63,19 @@ export default function HomePage() {
       color: C.text,
       minHeight: '100vh',
       width: '100%',
-      // hermes 那种粗糙的纸质纹理（用极淡的 SVG 噪点模拟）
-      backgroundImage: `radial-gradient(circle at 25% 30%, rgba(212,184,255,0.025) 0%, transparent 35%),
-                        radial-gradient(circle at 75% 70%, rgba(237,228,208,0.020) 0%, transparent 35%)`,
     }}>
       <div style={{ maxWidth: 980, margin: '0 auto', padding: '0 32px' }}>
 
-        {/* ─── 1. Pill ──────────────────────────────────────────────────── */}
+        {/* ─── 1. PILL ─────────────────────────────────────────────────── */}
         <div style={{
           textAlign: 'center', paddingTop: 80, marginBottom: 36,
           fontFamily: FONT_MONO, fontSize: 11,
-          letterSpacing: '0.22em', color: C.textSub,
+          letterSpacing: '0.22em', color: C.textFaint,
         }}>
           OPEN SOURCE  ·  MIT LICENSE
         </div>
 
-        {/* ─── 2. 大标题 ─────────────────────────────────────────────────── */}
+        {/* ─── 2. 衬线大标题 ──────────────────────────────────────────── */}
         <h1 style={{
           fontFamily: FONT_SERIF,
           fontSize: 'clamp(56px, 8vw, 104px)',
@@ -100,92 +90,88 @@ export default function HomePage() {
           Skill Evaluator
         </h1>
 
-        {/* ─── 3. 描述文字 ──────────────────────────────────────────────── */}
+        {/* ─── 3. 描述 ────────────────────────────────────────────────── */}
         <p style={{
           fontFamily: FONT_SERIF,
-          fontSize: 19,
-          lineHeight: 1.5,
+          fontSize: 19, lineHeight: 1.5,
           color: C.textSub,
           textAlign: 'center',
           maxWidth: 660,
           margin: '0 auto 56px',
         }}>
-          基于规则评估 <span style={{ fontFamily: FONT_MONO, fontSize: 16, color: C.text, padding: '0 4px' }}>SKILL.md</span> 的元数据完整性、流程可执行性、命名合规性等多维度，
-          配置 LLM 后可解锁针对性的优化建议。
+          基于规则评估
+          <span style={{
+            fontFamily: FONT_MONO, fontSize: 16,
+            color: C.text, padding: '0 6px',
+            background: C.bgSubtle,
+            border: `1px solid ${C.borderSoft}`,
+            margin: '0 2px',
+          }}>
+            SKILL.md
+          </span>
+          的元数据完整性、流程可执行性、命名合规性等多维度，配置 LLM 后可解锁针对性的优化建议。
         </p>
 
-        {/* ─── 4. CTA 按钮 ──────────────────────────────────────────────── */}
+        {/* ─── 4. CTA ─────────────────────────────────────────────────── */}
         <div style={{
           display: 'flex', gap: 16, justifyContent: 'center',
-          marginBottom: 80, flexWrap: 'wrap',
+          marginBottom: 96, flexWrap: 'wrap',
         }}>
           <CTA primary onClick={() => setActiveTab('skill-evaluator')}>开始评估 →</CTA>
           <CTA onClick={() => setActiveTab('skill-library')}>技能上传</CTA>
           <CTA onClick={() => setActiveTab('config-center')}>配置中心</CTA>
         </div>
 
-        {/* ─── 5. 实时统计 ───────────────────────────────────────────────── */}
-        <SectionLabel>STATS</SectionLabel>
+        {/* ─── 5. STATS ──────────────────────────────────────────────── */}
+        <SectionLabel>STATS / 实时统计</SectionLabel>
         <div style={{
           display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: 0,
           border: `1px solid ${C.border}`,
-          marginBottom: 80,
+          marginBottom: 96,
         }}>
-          <Stat value={stats.skills}     subZh="技能数"     subEn="SKILLS" />
-          <Stat value={stats.versions}   subZh="版本数"     subEn="VERSIONS" />
-          <Stat value={stats.evals}      subZh="评估次数"   subEn="EVALUATIONS" />
-          <Stat value={stats.standards}  subZh="启用标准数" subEn="ACTIVE STANDARDS" last />
+          <Stat value={stats.skills}    subZh="技能数"     subEn="SKILLS" />
+          <Stat value={stats.versions}  subZh="版本数"     subEn="VERSIONS" />
+          <Stat value={stats.evals}     subZh="评估次数"   subEn="EVALUATIONS" />
+          <Stat value={stats.standards} subZh="启用标准数" subEn="ACTIVE STANDARDS" last />
         </div>
 
-        {/* ─── 6. 本地运行 (Hermes 同款命令框) ──────────────────────────── */}
+        {/* ─── 6. RUN LOCALLY (hermes 命令框结构) ─────────────────────── */}
+        <SectionLabel center>RUN LOCALLY / 本地运行</SectionLabel>
+        <h2 style={{
+          fontFamily: FONT_SERIF,
+          fontSize: 'clamp(36px, 5vw, 56px)',
+          fontWeight: 500, letterSpacing: '-0.01em',
+          textAlign: 'center', color: C.text,
+          margin: 0, marginBottom: 16, lineHeight: 1.05,
+        }}>
+          在你的电脑离线运行
+        </h2>
+        <p style={{
+          fontFamily: FONT_SERIF, fontSize: 16, lineHeight: 1.6,
+          color: C.textSub, textAlign: 'center',
+          margin: '0 auto 40px', maxWidth: 580,
+        }}>
+          克隆仓库、三步即可运行整个平台，不依赖任何云服务。评估你的 skill，无需上传到外部服务。
+        </p>
+
+        <div style={{ maxWidth: 720, margin: '0 auto 28px' }}>
+          <CmdBlock number="1." label="INSTALL"
+            cmd="git clone https://github.com/uaandesign/skill-evaluator.git && cd skill-evaluator" />
+          <CmdBlock number="2." label="BUILD"
+            cmd="npm install && npm run build" />
+          <CmdBlock number="3." label="START"
+            cmd="npm start" />
+        </div>
+
         <div style={{
-          maxWidth: 760, margin: '0 auto 80px',
-          textAlign: 'center',
+          textAlign: 'center', marginBottom: 96,
+          fontFamily: FONT_MONO, fontSize: 11,
+          letterSpacing: '0.1em', color: C.textFaint,
         }}>
-          <SectionLabel center>RUN LOCALLY</SectionLabel>
-
-          <h2 style={{
-            fontFamily: FONT_SERIF, fontSize: 'clamp(36px, 5vw, 56px)',
-            fontWeight: 500, letterSpacing: '-0.01em',
-            color: C.text, margin: 0, marginBottom: 18, lineHeight: 1.05,
-          }}>
-            在你的电脑离线运行
-          </h2>
-
-          <p style={{
-            fontFamily: FONT_SERIF, fontSize: 16, lineHeight: 1.6,
-            color: C.textSub, margin: '0 auto 40px', maxWidth: 580,
-          }}>
-            克隆仓库，三行命令即可运行整个平台，不依赖任何云服务。
-            评估你的 skill，无需上传到外部服务。
-          </p>
-
-          <CmdBlock
-            number="1."
-            label="INSTALL"
-            cmd="git clone https://github.com/uaandesign/skill-evaluator.git && cd skill-evaluator"
-          />
-          <CmdBlock
-            number="2."
-            label="BUILD"
-            cmd="npm install && npm run build"
-          />
-          <CmdBlock
-            number="3."
-            label="START"
-            cmd="npm start  →  http://localhost:3000"
-          />
-
-          <div style={{
-            marginTop: 32, fontFamily: FONT_MONO, fontSize: 11,
-            color: C.textFaint, letterSpacing: '0.06em',
-          }}>
-            REQUIRES NODE.JS ≥ 20  ·  PYTHON 3  ·  POSTGRES (OPTIONAL)
-          </div>
+          REQUIRES NODE.JS ≥ 20  ·  PYTHON 3  ·  POSTGRES (OPTIONAL)
         </div>
 
-        {/* ─── 7. Footer ────────────────────────────────────────────────── */}
+        {/* ─── 7. Footer ─────────────────────────────────────────────── */}
         <div style={{
           borderTop: `1px solid ${C.border}`,
           padding: '32px 0',
@@ -212,22 +198,22 @@ function SectionLabel({ children, center }) {
     <div style={{
       fontFamily: FONT_MONO, fontSize: 11,
       letterSpacing: '0.22em', color: C.textFaint,
-      marginBottom: 20,
-      textAlign: center ? 'center' : 'left',
+      marginBottom: 20, textAlign: center ? 'center' : 'left',
     }}>
       {children}
     </div>
   );
 }
 
-// ─── Sub: CTA Button ───────────────────────────────────────────────────
+// ─── Sub: CTA ──────────────────────────────────────────────────────────
 function CTA({ children, primary, onClick }) {
   const [hover, setHover] = useState(false);
-  const isDark = primary ? !hover : hover;
+  // primary: 默认黑底白字, hover 反色
+  // secondary: 默认透明黑边, hover 黑底白字
+  const isInv = primary ? !hover : hover;
   return (
     <button
-      type="button"
-      onClick={onClick}
+      type="button" onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
@@ -236,8 +222,8 @@ function CTA({ children, primary, onClick }) {
         fontSize: 12, fontWeight: 600,
         letterSpacing: '0.1em',
         textTransform: 'uppercase',
-        background: isDark ? C.text : 'transparent',
-        color: isDark ? C.bg : C.text,
+        background: isInv ? C.text : 'transparent',
+        color:      isInv ? C.bg   : C.text,
         border: `1px solid ${C.text}`,
         borderRadius: 0,
         cursor: 'pointer',
@@ -251,16 +237,17 @@ function CTA({ children, primary, onClick }) {
   );
 }
 
-// ─── Sub: Stat cell ─────────────────────────────────────────────────────
+// ─── Sub: Stat ─────────────────────────────────────────────────────────
 function Stat({ value, subZh, subEn, last }) {
   return (
     <div style={{
-      padding: '32px 24px',
-      borderRight: last ? 'none' : `1px solid ${C.border}`,
+      padding: '36px 24px',
+      borderRight: last ? 'none' : `1px solid ${C.borderSoft}`,
       textAlign: 'center',
     }}>
       <div style={{
-        fontFamily: FONT_SERIF, fontSize: 64,
+        fontFamily: FONT_SERIF,
+        fontSize: 64,
         color: C.text, lineHeight: 1, letterSpacing: '-0.02em',
         marginBottom: 12,
       }}>
@@ -280,7 +267,7 @@ function Stat({ value, subZh, subEn, last }) {
   );
 }
 
-// ─── Sub: Hermes-style command block ───────────────────────────────────
+// ─── Sub: 命令框（黑白反差版）─────────────────────────────────────────
 function CmdBlock({ number, label, cmd }) {
   const handleCopy = (e) => {
     e.stopPropagation();
@@ -290,7 +277,7 @@ function CmdBlock({ number, label, cmd }) {
     );
   };
   return (
-    <div style={{ marginBottom: 14, textAlign: 'left' }}>
+    <div style={{ marginBottom: 14 }}>
       {/* Header row: NN. LABEL ............ COPY */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
@@ -299,7 +286,7 @@ function CmdBlock({ number, label, cmd }) {
         marginBottom: 6,
       }}>
         <span>
-          <span style={{ color: C.textSub, marginRight: 8 }}>{number}</span>
+          <span style={{ color: C.text, marginRight: 8 }}>{number}</span>
           {label}
         </span>
         <button
@@ -307,8 +294,7 @@ function CmdBlock({ number, label, cmd }) {
           style={{
             background: 'transparent', border: 'none',
             color: C.textFaint, fontFamily: FONT_MONO, fontSize: 11,
-            letterSpacing: '0.18em', cursor: 'pointer',
-            padding: 0,
+            letterSpacing: '0.18em', cursor: 'pointer', padding: 0,
           }}
           onMouseEnter={(e) => (e.currentTarget.style.color = C.text)}
           onMouseLeave={(e) => (e.currentTarget.style.color = C.textFaint)}
@@ -316,24 +302,24 @@ function CmdBlock({ number, label, cmd }) {
           COPY
         </button>
       </div>
-
-      {/* Cmd box */}
+      {/* 命令框：黑底白字，呼应 hermes 的反差感（但不用彩色） */}
       <div style={{
-        background: C.bgCmd,
-        border: `1px solid rgba(212, 184, 255, 0.20)`,
+        background: C.bgInverse,
+        color: C.textInv,
+        border: `1px solid ${C.bgInverse}`,
         padding: '14px 18px',
         fontFamily: FONT_MONO, fontSize: 13,
-        color: C.cmdHL,
         whiteSpace: 'pre',
         overflowX: 'auto',
       }}>
+        <span style={{ color: C.textFaint, marginRight: 10, userSelect: 'none' }}>$</span>
         {cmd}
       </div>
     </div>
   );
 }
 
-// ─── Sub: Footer Link ───────────────────────────────────────────────────
+// ─── Sub: Footer Link ──────────────────────────────────────────────────
 function FooterLink({ children, href, onClick }) {
   const Tag = href ? 'a' : 'button';
   const props = href
@@ -346,8 +332,7 @@ function FooterLink({ children, href, onClick }) {
         background: 'transparent', border: 'none',
         color: C.textSub, fontFamily: FONT_MONO, fontSize: 11,
         letterSpacing: '0.1em', cursor: 'pointer',
-        textDecoration: 'none',
-        padding: 0,
+        textDecoration: 'none', padding: 0,
       }}
       onMouseEnter={(e) => (e.currentTarget.style.color = C.text)}
       onMouseLeave={(e) => (e.currentTarget.style.color = C.textSub)}

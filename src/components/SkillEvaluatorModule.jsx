@@ -263,6 +263,7 @@ export default function SkillEvaluatorModule() {
     evalStandards, setEvalStandard, clearEvalStandard,
     evalModelId, setActiveTab,
     judgeEnabled, testcaseFeaturesEnabled, syncAppSettings,
+    addEvaluation,
   } = useStore();
 
   // All UI state lives in Zustand so it survives tab switches
@@ -426,6 +427,20 @@ export default function SkillEvaluatorModule() {
       const transformed = transformPyEvalResults(evalData, selectedModel);
       set({ results: transformed, resultsTab: 'evaluation' });
       message.success('评估完成');
+
+      // ─── 写入 store.evaluations 让首页统计能反映 ─────────────────────
+      if (typeof addEvaluation === 'function') {
+        addEvaluation({
+          skillId: selectedSkillId,
+          skillName: selectedSkill?.name || 'skill',
+          version: versions[selectedVersionIndex]?.description || `v${selectedVersionIndex + 1}`,
+          overall_score: transformed.summary?.overall_score ?? null,
+          grade: transformed.summary?.grade,
+          tag: transformed.summary?.tag,
+          fingerprint: transformed.fingerprint,
+          standards_count: transformed.py_results?.length || 0,
+        });
+      }
 
       const data = transformed;
       // 复用原有等级回写到技能卡片的逻辑

@@ -37,17 +37,15 @@ const FONT_SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neu
 const FONT_MONO = "'SF Mono', 'JetBrains Mono', 'Roboto Mono', Menlo, Consolas, monospace";
 
 export default function HomePage() {
-  const { setActiveTab, skills = [], evaluations = [], standardsRefreshKey } = useStore();
+  const { setActiveTab, skills = [], evaluations = [] } = useStore();
   const [serverStats, setServerStats] = useState(null);
   const [activeStandardsCount, setActiveStandardsCount] = useState(0);
   const [runLocallyOpen, setRunLocallyOpen] = useState(false);
 
-  // 依赖 standardsRefreshKey：ConfigCenter 切换标准后自动重新拉取
   useEffect(() => {
-    fetch('/api/stats')
-      .then((r) => r.json())
-      .then(setServerStats)
-      .catch(() => setServerStats({}));
+    // 拉服务器统计
+    fetch('/api/stats').then((r) => r.json()).then(setServerStats).catch(() => setServerStats({}));
+    // 直接拉评估标准列表（更可靠）
     fetch('/api/standards')
       .then((r) => r.json())
       .then((d) => {
@@ -55,7 +53,7 @@ export default function HomePage() {
         setActiveStandardsCount(active);
       })
       .catch(() => {});
-  }, [standardsRefreshKey]);
+  }, []);
 
   // 合并所有可能的评估次数来源（前端 store + 持久化的 zustand storage + 后端 stats）
   const evalsLocal = useMemo(() => {

@@ -46,33 +46,18 @@ app.use(
 /**
  * Vercel Serverless 函数签名：(req, res) => any
  * Express 中间件签名：    (req, res, next) => any
- *
- * 路径参数注入规则（Vercel 行为模拟）：
- *   /api/skills          → 无额外注入
- *   /api/skills/123      → req.query.id = '123'
- *   /api/skills/123/foo  → req.query.id = '123', req.query.action = 'foo'
- *   /api/auth/register   → req.query.action = 'register'
+ * 两者基本兼容，只需把 req.query 提供出来（Vercel 自动注入）。
  */
 function wrapHandler(handler) {
   return async (req, res, next) => {
     try {
+      // 在 path 中提取 [id] 参数注入 query（Vercel 行为）
+      // /api/skills/123 → req.query.id = '123'
       const pathParts = req.path.split('/').filter(Boolean);
-      // pathParts: ['api', 'skills', '123', 'foo']
       if (pathParts.length >= 2 && pathParts[0] === 'api') {
-        const segments = pathParts.slice(2); // 去掉 'api' 和路由名
+        const segments = pathParts.slice(2);
         if (segments.length === 1) {
-          // /api/route/:id  或  /api/auth/register（action 用 id 字段传递）
-          const val = segments[0];
-          // 如果是纯 UUID，注入为 id；否则注入为 action
-          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
-          if (isUuid) {
-            req.query = { ...req.query, id: val };
-          } else {
-            req.query = { ...req.query, action: val, id: val };
-          }
-        } else if (segments.length === 2) {
-          // /api/route/:id/:action  e.g. /api/standards/uuid/active
-          req.query = { ...req.query, id: segments[0], action: segments[1] };
+          req.query = { ...req.query, id: segments[0] };
         }
       }
       await handler(req, res);
@@ -108,14 +93,9 @@ async function mountApiRoutes() {
         console.warn(`[server] ${file} 没有 default export，跳过`);
         continue;
       }
-      // 支持多层子路径：
-      //   /api/skills
-      //   /api/skills/:id
-      //   /api/skills/:id/:action   ← 新增，支持 /api/standards/uuid/active
-      //   /api/auth/:action         ← 支持 /api/auth/register 等
+      // 同时支持 /api/skills 和 /api/skills/:id 两种路径
       app.all(routePath, wrapHandler(handler));
       app.all(`${routePath}/:id`, wrapHandler(handler));
-      app.all(`${routePath}/:id/:action`, wrapHandler(handler));
       console.log(`[server] ✓ 挂载 ${routePath}`);
     } catch (err) {
       console.error(`[server] ✗ 加载 ${file} 失败:`, err.message);

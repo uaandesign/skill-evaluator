@@ -55,7 +55,7 @@ async function callLLM(modelConfig, userPrompt, systemPrompt = null, maxTokens =
   // Anthropic
   if (!modelConfig || modelConfig.provider === 'anthropic') {
     const apiKey = modelConfig?.apiKey || process.env.ANTHROPIC_API_KEY;
-    const model = modelConfig?.model || 'claude-opus-4-7';
+    const model = modelConfig?.model || 'claude-sonnet-4-6';
     if (!apiKey) throw new Error('Anthropic API key 未配置');
 
     const body = {

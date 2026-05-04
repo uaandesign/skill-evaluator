@@ -215,7 +215,7 @@ const App = () => {
       case 'config-center':       return <ConfigCenter />;
       case 'skill-library':       return <SkillLibrary />;
       case 'skill-editor':        return <SkillEditorMVP />;
-      case 'skill-editor-legacy': return <SkillEditor />;
+      case 'skill-editor-legacy': return <SkillEditor />; /* 旧版保留备用 */
       case 'quality-eval':        return <QualityEval />;
       case 'skill-evaluator':     return <SkillEvaluatorModule />;
       default:                    return <HomePage />;
@@ -228,7 +228,11 @@ const App = () => {
   // 用户下拉菜单
   const userDropMenu = {
     items: [
-      { key: 'email', label: <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.textSub }}>{authUser?.email}</span>, disabled: true },
+      {
+        key: 'email',
+        label: <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.textSub }}>{authUser?.email}</span>,
+        disabled: true,
+      },
       { type: 'divider' },
       { key: 'logout', label: '退出登录', danger: true },
     ],
@@ -282,7 +286,7 @@ const App = () => {
           Table:  { borderRadius: 0, headerBg: '#fafafa', headerColor: '#525252' },
           Tag:    { borderRadius: 0 },
           Switch: { colorPrimary: '#0a0a0a', colorPrimaryHover: '#2d2d2d' },
-          Tabs:   { borderRadius: 0, inkBarColor: '#0a0a0a', itemActiveColor: '#0a0a0a', itemSelectedColor: '#0a0a0a' },
+          Tabs:   { inkBarColor: '#0a0a0a', itemActiveColor: '#0a0a0a', itemSelectedColor: '#0a0a0a' },
         },
       }}
     >
@@ -323,7 +327,6 @@ const App = () => {
                     display: 'flex', alignItems: 'center', gap: 7,
                     fontFamily: FONT_MONO, fontSize: 11, color: C.text, letterSpacing: '0.04em',
                   }}>
-                    {/* 头像圆 */}
                     <span style={{
                       width: 20, height: 20, borderRadius: '50%',
                       background: C.text, color: '#fff',

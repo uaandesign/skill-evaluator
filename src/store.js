@@ -11,7 +11,8 @@ export const PROVIDERS = [
     key: 'anthropic', name: 'Anthropic (Claude)',
     defaultBaseUrl: 'https://api.anthropic.com',
     models: [
-      { id: 'claude-opus-4-6',          name: 'Claude Opus 4.6 ✦ 最新' },
+      { id: 'claude-opus-4-7',           name: 'Claude Opus 4.7 ✦ 最新' },
+      { id: 'claude-opus-4-6',          name: 'Claude Opus 4.6' },
       { id: 'claude-sonnet-4-6',        name: 'Claude Sonnet 4.6 ✦ 最新' },
       { id: 'claude-haiku-4-5-20251001',name: 'Claude Haiku 4.5' },
       { id: 'claude-3-opus-20240229',   name: 'Claude 3 Opus' },
@@ -103,6 +104,7 @@ export const PROVIDERS = [
     key: 'bedrock', name: 'Amazon Bedrock',
     defaultBaseUrl: 'https://bedrock-runtime.us-east-1.amazonaws.com/v1',
     models: [
+      { id: 'anthropic.claude-opus-4-7',          name: 'Claude Opus 4.7 (Bedrock)' },
       { id: 'anthropic.claude-opus-4-6',          name: 'Claude Opus 4.6 (Bedrock)' },
       { id: 'meta.llama3-70b-instruct-v1:0',       name: 'Llama 3 70B (Bedrock)' },
       { id: 'meta.llama3-8b-instruct-v1:0',        name: 'Llama 3 8B (Bedrock)' },
@@ -211,6 +213,30 @@ export const PROVIDERS = [
 export const useStore = create(
   persist(
     (set, get) => ({
+
+      /* ============================================
+         Auth State — 用户登录 / 注册
+         token 存 localStorage（通过 persist），user 对象同步
+         ============================================ */
+      authUser:  null,   // { id, email, display_name, role, ... }
+      authToken: null,   // JWT string
+
+      setAuth: (user, token) => set({ authUser: user, authToken: token }),
+      clearAuth: () => set({ authUser: null, authToken: null }),
+
+      /** 带 token 的 fetch 请求头 */
+      authHeaders: () => {
+        const token = get().authToken;
+        return token ? { Authorization: `Bearer ${token}` } : {};
+      },
+
+      /* ============================================
+         Standards Refresh Signal
+         每次切换启用/停用标准后 +1，HomePage 监听此值刷新统计
+         ============================================ */
+      standardsRefreshKey: 0,
+      bumpStandardsRefresh: () =>
+        set((s) => ({ standardsRefreshKey: s.standardsRefreshKey + 1 })),
 
       /* ============================================
          UI State
@@ -514,6 +540,9 @@ export const useStore = create(
         evalModelId:    state.evalModelId,
         judgeEnabled:   state.judgeEnabled,
         testcaseFeaturesEnabled: state.testcaseFeaturesEnabled,
+        // Auth 持久化（token 需要跨刷新保留）
+        authUser:       state.authUser,
+        authToken:      state.authToken,
       }),
     }
   )

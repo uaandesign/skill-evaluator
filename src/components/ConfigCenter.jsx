@@ -192,6 +192,7 @@ const ConfigCenter = () => {
     evalModelId, setEvalModelId,
     judgeEnabled, setJudgeEnabled,
     testcaseFeaturesEnabled, toggleAppSetting, syncAppSettings,
+    bumpStandardsRefresh,
   } = useStore();
 
   // 配置页打开时拉一次最新 settings，让多设备/多浏览器之间状态一致
@@ -223,7 +224,8 @@ const ConfigCenter = () => {
 
   const toggleStandardActive = async (id, current) => {
     try {
-      const r = await fetch(`/api/standards/${id}?action=active`, {
+      // 支持两种路径风格：query param（旧）和子路径（新 server.js 路由）
+      const r = await fetch(`/api/standards/${id}/active`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !current }),
@@ -231,6 +233,8 @@ const ConfigCenter = () => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       message.success(!current ? '已启用' : '已停用');
       refreshServerStandards();
+      // 通知 HomePage 刷新 Active Standards 统计数
+      if (typeof bumpStandardsRefresh === 'function') bumpStandardsRefresh();
     } catch (err) {
       message.error('切换失败: ' + err.message);
     }
@@ -264,6 +268,7 @@ const ConfigCenter = () => {
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
       message.success(`已上传：${data.standard_key} · ${data.version_label || ''}`);
       refreshServerStandards();
+      if (typeof bumpStandardsRefresh === 'function') bumpStandardsRefresh();
     } catch (err) {
       message.error('上传失败: ' + err.message);
     } finally {

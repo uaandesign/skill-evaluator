@@ -41,7 +41,7 @@ async function fetchWithRetry(url, options, { maxRetries = 3, baseDelay = 1000, 
 async function callLLMForEval(modelConfig, userPrompt, maxTokens = 4000, systemPrompt = null) {
   if (!modelConfig || modelConfig.provider === 'anthropic') {
     const apiKey = modelConfig?.apiKey || process.env.ANTHROPIC_API_KEY;
-    const model = modelConfig?.model || 'claude-sonnet-4-6';
+    const model = modelConfig?.model || 'claude-opus-4-7';
     if (!apiKey) throw new Error('Anthropic API key 未配置');
     const body = { model, max_tokens: maxTokens, temperature: 0, messages: [{ role: 'user', content: userPrompt }] };
     if (systemPrompt) body.system = systemPrompt;

@@ -216,11 +216,21 @@ export const useStore = create(
          Auth State
          authUser:  当前登录用户对象 { id, email, display_name, role }
          authToken: HMAC-SHA256 自签名 token，随请求头携带
+
+         setAuth：切换用户时自动加载该用户专属的 modelConfigs，
+                  实现账户间完全隔离，组件层无需任何改动。
+         clearAuth：退出时清空活跃配置（数据已持久化在 _modelConfigsByUser）
          ============================================ */
       authUser:  null,
       authToken: null,
-      setAuth: (user, token) => set({ authUser: user, authToken: token }),
-      clearAuth: () => set({ authUser: null, authToken: null }),
+      setAuth: (user, token) =>
+        set((state) => {
+          const userId = String(user?.id || '_guest');
+          // 切换到目标用户时，从持久化 map 中恢复其专属配置
+          const userConfigs = state._modelConfigsByUser[userId] || [];
+          return { authUser: user, authToken: token, modelConfigs: userConfigs };
+        }),
+      clearAuth: () => set({ authUser: null, authToken: null, modelConfigs: [] }),
 
       /* ============================================
          UI State
@@ -231,27 +241,50 @@ export const useStore = create(
       setLoading: (loading) => set({ isLoading: loading }),
 
       /* ============================================
-         CONFIG CENTER — Models
+         CONFIG CENTER — Models（按账户隔离）
          Each entry: { id, provider, model, apiKey, baseUrl, displayName, status }
+
+         _modelConfigsByUser: 持久化 map，格式 { [userId]: configs[] }
+           - 存储每个账户的完整配置，切换账户时从此处恢复
+           - 组件层只读 modelConfigs（当前用户的活跃视图）
+         modelConfigs: 当前登录用户的配置列表（由 setAuth 加载）
+           - 每次写操作（add/remove/update）同步双写回 _modelConfigsByUser
          ============================================ */
-      modelConfigs: [],
+      _modelConfigsByUser: {},   // 持久化存储：{ [userId]: configs[] }
+      modelConfigs: [],          // 活跃视图：当前用户的配置
+
       addModelConfig: (config) =>
-        set((state) => ({
-          modelConfigs: [
+        set((state) => {
+          const userId = String(state.authUser?.id || '_guest');
+          const updated = [
             ...state.modelConfigs,
             { ...config, id: config.id || `${config.provider}-${config.model}-${Date.now()}` },
-          ],
-        })),
+          ];
+          return {
+            modelConfigs: updated,
+            _modelConfigsByUser: { ...state._modelConfigsByUser, [userId]: updated },
+          };
+        }),
       removeModelConfig: (id) =>
-        set((state) => ({
-          modelConfigs: state.modelConfigs.filter((c) => c.id !== id),
-        })),
+        set((state) => {
+          const userId = String(state.authUser?.id || '_guest');
+          const updated = state.modelConfigs.filter((c) => c.id !== id);
+          return {
+            modelConfigs: updated,
+            _modelConfigsByUser: { ...state._modelConfigsByUser, [userId]: updated },
+          };
+        }),
       updateModelConfig: (id, updates) =>
-        set((state) => ({
-          modelConfigs: state.modelConfigs.map((c) =>
+        set((state) => {
+          const userId = String(state.authUser?.id || '_guest');
+          const updated = state.modelConfigs.map((c) =>
             c.id === id ? { ...c, ...updates } : c
-          ),
-        })),
+          );
+          return {
+            modelConfigs: updated,
+            _modelConfigsByUser: { ...state._modelConfigsByUser, [userId]: updated },
+          };
+        }),
 
       /* ============================================
          CONFIG CENTER — Capabilities
@@ -514,11 +547,12 @@ export const useStore = create(
       name: 'skill-evaluator-store',
       partialize: (state) => ({
         // auth（持久化 token，刷新后自动验证）
-        authUser:       state.authUser,
-        authToken:      state.authToken,
-        // 其他状态
-        modelConfigs:   state.modelConfigs,
-        capabilities:   state.capabilities,
+        authUser:              state.authUser,
+        authToken:             state.authToken,
+        // 按账户隔离的 API Key 配置
+        _modelConfigsByUser:   state._modelConfigsByUser,
+        modelConfigs:          state.modelConfigs,   // 活跃视图（冗余存储便于快速恢复）
+        capabilities:          state.capabilities,
         skills:         state.skills,
         activeSkillId:  state.activeSkillId,
         evaluations:    state.evaluations,

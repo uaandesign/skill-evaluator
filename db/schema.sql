@@ -5,6 +5,20 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "moddatetime";
 
+-- ─── Users table ────────────────────────────────────────────────────────────
+-- 用于登录/注册认证，password 字段存储 scrypt 哈希（格式：hash.salt）
+CREATE TABLE IF NOT EXISTS users (
+  id           SERIAL PRIMARY KEY,
+  email        VARCHAR(255) NOT NULL UNIQUE,
+  password     VARCHAR(512) NOT NULL,
+  display_name VARCHAR(255),
+  role         VARCHAR(50)  NOT NULL DEFAULT 'user',
+  created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
 -- Skill categories table
 CREATE TABLE IF NOT EXISTS skill_categories (
   id SERIAL PRIMARY KEY,

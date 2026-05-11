@@ -213,6 +213,16 @@ export const useStore = create(
     (set, get) => ({
 
       /* ============================================
+         Auth State
+         authUser:  当前登录用户对象 { id, email, display_name, role }
+         authToken: HMAC-SHA256 自签名 token，随请求头携带
+         ============================================ */
+      authUser:  null,
+      authToken: null,
+      setAuth: (user, token) => set({ authUser: user, authToken: token }),
+      clearAuth: () => set({ authUser: null, authToken: null }),
+
+      /* ============================================
          UI State
          ============================================ */
       activeTab: 'home',                                  // 默认落到首页
@@ -503,6 +513,10 @@ export const useStore = create(
     {
       name: 'skill-evaluator-store',
       partialize: (state) => ({
+        // auth（持久化 token，刷新后自动验证）
+        authUser:       state.authUser,
+        authToken:      state.authToken,
+        // 其他状态
         modelConfigs:   state.modelConfigs,
         capabilities:   state.capabilities,
         skills:         state.skills,
